@@ -1,0 +1,55 @@
+# VOICEcheck Development Dockerfile
+# For local development with hot-reload
+
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH=/root/.local/bin:$PATH \
+    WHISPER_MODEL=${WHISPER_MODEL:-tiny} \
+    WHISPER_DEVICE=${WHISPER_DEVICE:-cpu} \
+    LOG_LEVEL=${LOG_LEVEL:-DEBUG} \
+    MAX_FILE_SIZE=${MAX_FILE_SIZE:-52428800} \
+    ALLOWED_EXTENSIONS=${ALLOWED_EXTENSIONS:-.mp3,.wav,.m4a,.ogg,.flac,.mp4,.webm} \
+    ZAI_API_KEY=${ZAI_API_KEY:-} \
+    ZAI_MODEL=${ZAI_MODEL:-claude-3-5-sonnet} \
+    LLM_TIMEOUT=${LLM_TIMEOUT:-30} \
+    HF_TOKEN=${HF_TOKEN:-} \
+    EXPORT_CACHE_TTL=${EXPORT_CACHE_TTL:-3600} \
+    DEBUG=true \
+    AUTO_RELOAD=true
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create non-root user
+RUN groupadd -r voicecheck && useradd -r -g voicecheck voicecheck
+
+# Copy requirements and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# Set working directory
+WORKDIR /app
+
+# Create necessary directories
+RUN mkdir -p /app/uploads /app/static \
+    && chown -R voicecheck:voicecheck /app \
+    && chmod 755 /app
+
+# Copy Alembic files
+COPY alembic ./alembic
+
+# Switch to non-root user
+USER voicecheck
+
+# Expose port
+EXPOSE 8000
+
+# Run the application with auto-reload
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--log-level", "debug"]

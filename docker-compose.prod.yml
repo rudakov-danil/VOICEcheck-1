@@ -1,0 +1,125 @@
+# Production Docker Compose configuration
+# Optimized for production deployment
+
+version: '3.8'
+
+services:
+  # PostgreSQL database with persistence
+  postgres:
+    image: postgres:15-alpine
+    container_name: voicecheck-db-prod
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-voicecheck}
+      - POSTGRES_USER=${POSTGRES_USER:-voicecheck}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+      - ./backup:/backup
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-voicecheck} -d ${POSTGRES_DB:-voicecheck}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+        compress: "true"
+
+  # Voicecheck application
+  voicecheck:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: voicecheck-app-prod
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      # Read-only uploads
+      - uploads_prod:/app/uploads:ro
+    environment:
+      # Database
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-voicecheck}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-voicecheck}
+      # LLM API
+      - ZAI_API_KEY=${ZAI_API_KEY}
+      - ZAI_MODEL=${ZAI_MODEL:-claude-3-5-sonnet}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-30}
+      # Speaker Diarization
+      - HF_TOKEN=${HF_TOKEN}
+      # Whisper
+      - WHISPER_MODEL=${WHISPER_MODEL:-tiny}
+      - WHISPER_DEVICE=cpu
+      # Application
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-52428800}
+      - LOG_LEVEL=${LOG_LEVEL:-WARNING}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      - ALLOWED_EXTENSIONS=${ALLOWED_EXTENSIONS:-.mp3,.wav,.m4a,.ogg,.flac,.mp4,.webm}
+      - EXPORT_CACHE_TTL=${EXPORT_CACHE_TTL:-3600}
+      - DEBUG=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '3.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+    restart: unless-stopped
+    # Production logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+        compress: "true"
+
+  # Nginx reverse proxy (optional)
+  nginx:
+    image: nginx:alpine
+    container_name: voicecheck-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - voicecheck
+    restart: unless-stopped
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+volumes:
+  postgres_data_prod:
+  uploads_prod:
+
+# Production network
+networks:
+  default:
+    name: voicecheck_network_prod

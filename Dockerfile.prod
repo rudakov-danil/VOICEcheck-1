@@ -1,0 +1,64 @@
+# VOICEcheck Production Dockerfile
+# Optimized for production deployment
+
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH=/root/.local/bin:$PATH \
+    WHISPER_MODEL=${WHISPER_MODEL:-tiny} \
+    WHISPER_DEVICE=cpu \
+    LOG_LEVEL=${LOG_LEVEL:-WARNING} \
+    MAX_FILE_SIZE=${MAX_FILE_SIZE:-52428800} \
+    ALLOWED_EXTENSIONS=${ALLOWED_EXTENSIONS:-.mp3,.wav,.m4a,.ogg,.flac,.mp4,.webm} \
+    ZAI_API_KEY=${ZAI_API_KEY:-} \
+    ZAI_MODEL=${ZAI_MODEL:-claude-3-5-sonnet} \
+    LLM_TIMEOUT=${LLM_TIMEOUT:-30} \
+    HF_TOKEN=${HF_TOKEN:-} \
+    EXPORT_CACHE_TTL=${EXPORT_CACHE_TTL:-3600} \
+    DEBUG=false
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create non-root user
+RUN groupadd -r voicecheck && useradd -r -g voicecheck voicecheck
+
+# Copy installed packages from builder
+COPY --from=builder /root/.local /root/.local
+ENV PATH=/root/.local/bin:$PATH
+
+# Set working directory
+WORKDIR /app
+
+# Create necessary directories
+RUN mkdir -p /app/uploads /app/static \
+    && chown -R voicecheck:voicecheck /app \
+    && chmod 755 /app
+
+# Copy application code
+COPY --chown=voicecheck:voicecheck app ./app
+COPY --chown=voicecheck:voicecheck static ./static
+COPY --chown=voicecheck:voicecheck alembic ./alembic
+
+# Copy requirements and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Switch to non-root user
+USER voicecheck
+
+# Run the application with production settings
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

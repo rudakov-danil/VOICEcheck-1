@@ -1,0 +1,83 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+README.md
+*.md
+!README.md
+*.txt
+!requirements.txt
+
+# Docker
+docker-compose.yml
+Dockerfile
+Dockerfile.prod
+docker-compose.prod.yml
+nginx.conf
+.env.example
+.env.example.prod
+
+# Project specific
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.log
+logs/
+
+# Test artifacts
+test_*
+*_test.py
+tests/
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+.nyc_output
+
+# Backup
+backup/
+*.backup
+
+# Uploads
+uploads/
+/tmp/voicecheck_uploads/
+
+# Monitoring
+*.metrics
+*.stats

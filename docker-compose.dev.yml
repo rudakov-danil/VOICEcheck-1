@@ -1,0 +1,101 @@
+# Development Docker Compose configuration
+# For local development with auto-reload
+
+version: '3.8'
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:15-alpine
+    container_name: voicecheck-db-dev
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-voicecheck}
+      - POSTGRES_USER=${POSTGRES_USER:-voicecheck}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-voicecheck_password}
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-voicecheck} -d ${POSTGRES_DB:-voicecheck}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Voicecheck application with hot-reload
+  voicecheck-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: voicecheck-app-dev
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      # Mount source code for hot-reload
+      - .:/app
+      # Preserve uploads
+      - ./uploads:/app/uploads
+    environment:
+      # Database
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-voicecheck}:${POSTGRES_PASSWORD:-voicecheck_password}@postgres:5432/${POSTGRES_DB:-voicecheck}
+      # LLM API
+      - ZAI_API_KEY=${ZAI_API_KEY}
+      - ZAI_MODEL=${ZAI_MODEL:-claude-3-5-sonnet}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-30}
+      # Speaker Diarization
+      - HF_TOKEN=${HF_TOKEN}
+      # Whisper
+      - WHISPER_MODEL=${WHISPER_MODEL:-tiny}
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
+      # Application
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-52428800}
+      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8000,http://localhost:3000}
+      - ALLOWED_EXTENSIONS=${ALLOWED_EXTENSIONS:-.mp3,.wav,.m4a,.ogg,.flac,.mp4,.webm}
+      - EXPORT_CACHE_TTL=${EXPORT_CACHE_TTL:-3600}
+      - DEBUG=true
+      - AUTO_RELOAD=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Migration runner
+  migration:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: voicecheck-migration-dev
+    command: >
+      bash -c "alembic upgrade head"
+    environment:
+      # Database
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-voicecheck}:${POSTGRES_PASSWORD:-voicecheck_password}@postgres:5432/${POSTGRES_DB:-voicecheck}
+      # Same environment variables as app
+      - ZAI_API_KEY=${ZAI_API_KEY}
+      - ZAI_MODEL=${ZAI_MODEL:-claude-3-5-sonnet}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-30}
+      - HF_TOKEN=${HF_TOKEN}
+      - WHISPER_MODEL=${WHISPER_MODEL:-tiny}
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-52428800}
+      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8000,http://localhost:3000}
+      - ALLOWED_EXTENSIONS=${ALLOWED_EXTENSIONS:-.mp3,.wav,.m4a,.ogg,.flac,.mp4,.webm}
+      - EXPORT_CACHE_TTL=${EXPORT_CACHE_TTL:-3600}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./alembic:/app/alembic
+    restart: "no"
+
+volumes:
+  postgres_data_dev:
+
+# Development network
+networks:
+  default:
+    name: voicecheck_network_dev

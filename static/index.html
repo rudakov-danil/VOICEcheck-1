@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VOICEcheck - Анализ диалогов</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css?v=9">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="header-content">
+                <h1 class="app-title">VOICEcheck</h1>
+                <p class="app-subtitle">AI-powered диалоговый анализ</p>
+            </div>
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="upload">Загрузка</button>
+            <button class="tab-btn" data-tab="dialogs">Диалоги</button>
+            <button class="tab-btn" data-tab="organizations">Организации</button>
+            <button class="tab-btn" data-tab="dashboard">Дашборд</button>
+        </nav>
+
+        <!-- Tab Content -->
+        <main class="tab-content">
+            <!-- Upload Tab -->
+            <div class="tab-pane active" id="upload-tab">
+                <div class="container">
+                    <div class="card">
+                        <div class="upload-area" id="uploadArea">
+                            <input type="file" id="fileInput" accept=".mp3,.wav,.m4a,.ogg,.flac,.mp4,.webm">
+                            <div class="upload-icon">+</div>
+                            <div class="upload-text">Выберите аудиофайл</div>
+                            <div class="upload-hint">MP3, WAV, M4A, OGG, FLAC (макс. 50MB)</div>
+                        </div>
+
+                        <div class="file-info" id="fileInfo">
+                            <div>
+                                <div class="file-name" id="fileName"></div>
+                                <div class="file-size" id="fileSize"></div>
+                            </div>
+                            <button class="btn btn-secondary btn-small" id="changeFileBtn">Изменить</button>
+                        </div>
+
+                        <div class="language-selector" id="languageSelector" style="display: none;">
+                            <label for="languageSelect">Язык аудио</label>
+                            <select id="languageSelect">
+                                <option value="ru">Русский</option>
+                                <option value="en">English</option>
+                                <option value="auto">Автоопределение</option>
+                                <option value="de">Deutsch</option>
+                                <option value="fr">Francais</option>
+                                <option value="es">Espanol</option>
+                            </select>
+                        </div>
+
+                        <div class="seller-input" id="sellerInput" style="display: none;">
+                            <label for="sellerName">Продавец</label>
+                            <select id="sellerName">
+                                <option value="">Не указан</option>
+                            </select>
+                        </div>
+
+                        <button class="btn" id="uploadBtn" disabled>Загрузить и анализировать</button>
+                    </div>
+
+                    <div class="card status-area" id="statusArea">
+                        <div class="status-text" id="statusText">
+                            <span class="spinner"></span>
+                            <span id="statusMessage">Идет транскрибация...</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                    </div>
+
+                    <div class="error-message" id="errorMessage"></div>
+
+                    <div class="card result-area" id="resultArea">
+                        <div class="result-header">
+                            <div class="result-title">Результат транскрибации</div>
+                            <div class="result-meta" id="resultMeta"></div>
+                        </div>
+                        <div class="result-text" id="resultText"></div>
+                        <div class="result-actions">
+                            <button class="btn btn-small" id="copyBtn">Копировать</button>
+                            <button class="btn btn-secondary btn-small" id="newTranscriptionBtn">Новая транскрибация</button>
+                        </div>
+                    </div>
+
+                    <div class="footer">
+                        <p>Powered by Deepgram AI + Claude LLM</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dialogs Tab -->
+            <div class="tab-pane" id="dialogs-tab">
+                <div class="dialogs-container">
+                    <div class="dialogs-header">
+                        <h2>Диалоги</h2>
+                        <div class="dialogs-filters">
+                            <input type="text" id="searchFilter" placeholder="Поиск..." class="filter-input">
+                            <select id="sellerFilter">
+                                <option value="">Все продавцы</option>
+                            </select>
+                            <select id="statusFilter">
+                                <option value="">Все статусы</option>
+                                <option value="completed">Завершено</option>
+                                <option value="dealed">Сделка</option>
+                                <option value="in_progress">В работе</option>
+                                <option value="rejected">Отклонено</option>
+                            </select>
+                            <select id="scoreFilter">
+                                <option value="">Любой балл</option>
+                                <option value="9">9+</option>
+                                <option value="7">7+</option>
+                                <option value="5">5+</option>
+                            </select>
+                            <input type="date" id="dateFromFilter">
+                            <input type="date" id="dateToFilter">
+                        </div>
+                    </div>
+
+                    <div class="dialogs-list" id="dialogsList"></div>
+                    <div class="pagination" id="pagination"></div>
+                </div>
+            </div>
+
+            <!-- Organizations Tab -->
+            <div class="tab-pane" id="organizations-tab">
+                <div class="container">
+                    <!-- Organization List View -->
+                    <div id="organizationListView">
+                        <div class="card">
+                            <div class="card-header">
+                                <h2>Организации</h2>
+                                <button class="btn btn-primary" id="createOrgBtn">+ Создать организацию</button>
+                            </div>
+                            <div class="organizations-list" id="organizationsList">
+                                <p class="text-muted">Загрузка организаций...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Organization Detail View (hidden by default) -->
+                    <div id="organizationDetailView" style="display: none;">
+                        <div class="card">
+                            <div class="card-header">
+                                <button class="btn btn-secondary btn-small" id="backToOrgsBtn">← Назад</button>
+                                <h2 id="orgDetailName">Название организации</h2>
+                            </div>
+
+                            <!-- Organization Members Section -->
+                            <div class="org-members-section">
+                                <div class="section-header">
+                                    <h3>Сотрудники</h3>
+                                    <button class="btn btn-primary btn-small" id="addMemberBtn">+ Добавить сотрудника</button>
+                                </div>
+                                <div class="members-list" id="membersList">
+                                    <p class="text-muted">Загрузка сотрудников...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard Tab -->
+            <div class="tab-pane" id="dashboard-tab">
+                <div class="dashboard-container">
+                    <div class="dashboard-header">
+                        <h2>Дашборд</h2>
+                        <div class="dashboard-filters">
+                            <input type="date" id="dashDateFrom">
+                            <input type="date" id="dashDateTo">
+                            <select id="dashSellerFilter">
+                                <option value="">Все продавцы</option>
+                            </select>
+                            <button class="btn btn-small" id="dashRefreshBtn">Обновить</button>
+                        </div>
+                    </div>
+
+                    <div class="stats-grid" id="statsGrid"></div>
+
+                    <div class="dashboard-charts">
+                        <div class="card">
+                            <h3>Динамика оценок</h3>
+                            <div class="chart-container">
+                                <canvas id="scoringDynamicsChart"></canvas>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <h3>Частые возражения</h3>
+                            <div id="objectionsListContainer">
+                                <p class="no-data">Данные загружаются...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Dialog Evaluation Modal -->
+    <div class="modal" id="evaluationModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Оценка диалога</h3>
+                <button class="close-btn">&times;</button>
+            </div>
+            <div class="modal-body" id="evaluationContent"></div>
+        </div>
+    </div>
+
+    <!-- Add Member Modal -->
+    <div class="modal" id="addMemberModal">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3>Добавить сотрудника</h3>
+                <button class="close-btn" onclick="closeAddMemberModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="addMemberForm">
+                    <div class="form-group">
+                        <label for="memberUsername">Логин *</label>
+                        <input type="text" id="memberUsername" class="form-input" placeholder="Введите логин" required>
+                        <div class="error-message" id="usernameError"></div>
+                    </div>
+                    <div class="form-group">
+                        <label for="memberPassword">Пароль *</label>
+                        <input type="password" id="memberPassword" class="form-input" placeholder="Введите пароль" required>
+                        <div class="error-message" id="passwordError"></div>
+                    </div>
+                    <div class="form-group">
+                        <label for="memberFullName">Полное имя *</label>
+                        <input type="text" id="memberFullName" class="form-input" placeholder="Иван Иванов" required>
+                        <div class="error-message" id="fullNameError"></div>
+                    </div>
+                    <div class="form-group">
+                        <label for="memberRole">Роль</label>
+                        <select id="memberRole" class="form-input">
+                            <option value="member">Участник</option>
+                            <option value="admin">Администратор</option>
+                            <option value="viewer">Зритель</option>
+                            <option value="owner">Владелец</option>
+                        </select>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeAddMemberModal()">Отмена</button>
+                        <button type="submit" class="btn btn-primary">Добавить</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Organization Modal -->
+    <div class="modal" id="createOrgModal">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3>Создать организацию</h3>
+                <button class="close-btn" onclick="closeCreateOrgModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="createOrgForm">
+                    <div class="form-group">
+                        <label for="orgName">Название организации *</label>
+                        <input type="text" id="orgName" class="form-input" placeholder="Название организации" required>
+                        <div class="error-message" id="orgNameError"></div>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeCreateOrgModal()">Отмена</button>
+                        <button type="submit" class="btn btn-primary">Создать</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js?v=15"></script>
+</body>
+</html>
