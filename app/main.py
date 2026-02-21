@@ -82,6 +82,7 @@ settings = get_settings()
 if settings.auth_enabled:
     from .routers.auth import router as auth_router
     from .routers.organizations import router as organizations_router
+    from .routers.departments import router as departments_router
 
 # Configure logging
 logging.basicConfig(
@@ -174,8 +175,20 @@ if settings.auth_enabled:
     logger.info("Authentication enabled - including auth and organizations routers")
     app.include_router(auth_router)
     app.include_router(organizations_router)
+    app.include_router(departments_router)
 else:
     logger.info("Authentication disabled - running in legacy mode")
+
+
+# Employee login route - serves auth-org.html for /login/{code} URLs
+@app.get("/login/{code}")
+async def org_login_page(code: str):
+    """Serve the organization login page for employee access via shareable link."""
+    index_path = Path("/app/static/auth-org.html")
+    if index_path.exists():
+        return FileResponse(index_path)
+    raise HTTPException(status_code=404, detail="Login page not found")
+
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="/app/static"), name="static")

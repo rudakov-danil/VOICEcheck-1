@@ -40,7 +40,7 @@ from ..models import (
     Segment,
 )
 from ..dependencies import get_llm_analyzer
-from ..transcriber import get_whisper_service
+from ..transcriber import get_whisper_service, get_last_zai_debug
 from ..config import AUTH_ENABLED
 
 # Auth imports
@@ -451,6 +451,15 @@ async def get_dialogs(
     except Exception as e:
         logger.error(f"Failed to get dialogs: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка загрузки диалогов: {str(e)}")
+
+
+@router.get("/debug/zai-last")
+async def get_zai_debug_last():
+    """Return the last z.ai diarization debug info (in-memory, dev only)."""
+    data = get_last_zai_debug()
+    if data is None:
+        return {"message": "No z.ai debug data yet. Transcribe a dialog first."}
+    return data
 
 
 @router.get("/{dialog_id}", response_model=DialogDetail)

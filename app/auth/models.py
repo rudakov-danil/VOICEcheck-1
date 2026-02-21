@@ -234,6 +234,8 @@ class Organization(Base):
     # Relationships
     memberships = relationship("Membership", back_populates="organization",
                               cascade="all, delete-orphan")
+    departments = relationship("Department", back_populates="organization",
+                              cascade="all, delete-orphan")
 
     def get_owner(self) -> Optional[User]:
         """Get the owner user of this organization."""
@@ -251,57 +253,49 @@ class Organization(Base):
         return sum(1 for m in self.memberships if m.is_active)
 
 
+class Department(Base):
+    """Department within an organization, optionally led by a user."""
+
+    __tablename__ = "departments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4, index=True)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"),
+                            nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    head_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"),
+                         nullable=True, index=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    organization = relationship("Organization", back_populates="departments")
+    head_user = relationship("User", foreign_keys=[head_user_id])
+    members = relationship("Membership", back_populates="department",
+                          foreign_keys="Membership.department_id")
+
+
 class Membership(Base):
-    """
-    Membership model for user-organization relationship.
-
-    Junction table that links Users to Organizations with a specific role.
-    Supports soft deletion via is_active flag for history tracking.
-
-    Attributes:
-        id: Unique membership identifier (UUID)
-        user_id: Reference to the user
-        organization_id: Reference to the organization
-        role: User's role within the organization
-        is_active: Whether the membership is active
-        created_at: Membership creation timestamp
-        updated_at: Last update timestamp
-
-    Relationships:
-        user: Reference to the User model
-        organization: Reference to the Organization model
-    """
+    """Membership model for user-organization relationship with optional department."""
 
     __tablename__ = "memberships"
 
-    # Primary key
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4, index=True)
-
-    # Foreign keys
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
-                    nullable=False, index=True, comment="Reference to user")
+                    nullable=False, index=True)
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"),
-                            nullable=False, index=True, comment="Reference to organization")
+                            nullable=False, index=True)
+    department_id = Column(UUID(as_uuid=True), ForeignKey("departments.id", ondelete="SET NULL"),
+                          nullable=True, index=True)
+    role = Column(String(50), nullable=False, default=UserRole.MEMBER.value)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    # Membership details
-    role = Column(String(50), nullable=False, default=UserRole.MEMBER.value,
-                  comment="User role within organization")
-
-    # Status
-    is_active = Column(Boolean, nullable=False, default=True,
-                      comment="Whether the membership is active")
-
-    # Timestamps
-    created_at = Column(DateTime(timezone=True), server_default=func.now(),
-                       comment="Membership creation timestamp")
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now(),
-                       comment="Last update timestamp")
-
-    # Relationships
     user = relationship("User", back_populates="memberships")
     organization = relationship("Organization", back_populates="memberships")
+    department = relationship("Department", back_populates="members",
+                            foreign_keys=[department_id])
 
-    # Constraints
     roles_list = "', '".join(UserRole.all())
     __table_args__ = (
         UniqueConstraint('user_id', 'organization_id', name='uq_user_organization'),

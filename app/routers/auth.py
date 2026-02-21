@@ -74,7 +74,8 @@ class TokenResponse(BaseModel):
 class UserResponse(BaseModel):
     """Response model for user info."""
     id: str
-    email: str
+    email: Optional[str] = None
+    username: Optional[str] = None
     full_name: str
     is_active: bool
     last_login_at: Optional[str] = None
@@ -286,11 +287,22 @@ async def login_with_username(
             organization_id=org_id
         )
 
-        # Get organization details
+        # Get organization details and user's membership role
         org_service = OrganizationsService(db)
         organization = await org_service.get_organization_by_id(org_id)
 
-        return _build_login_response(session, user, organization)
+        # Get actual membership role
+        user_role = "member"
+        try:
+            user_orgs = await auth_service.get_user_organizations(user.id)
+            for org in user_orgs:
+                if str(org.id) == str(org_id):
+                    user_role = getattr(org, 'membership_role', 'member')
+                    break
+        except Exception:
+            pass
+
+        return _build_login_response(session, user, organization, role=user_role)
 
     except ValueError as e:
         raise HTTPException(
@@ -554,12 +566,14 @@ async def select_organization(
 def _build_login_response(
     session,
     user: User,
-    organization
+    organization,
+    role: str = "owner"
 ) -> LoginResponse:
     """Build login response from session and user."""
     user_response = UserResponse(
         id=str(user.id),
         email=user.email,
+        username=getattr(user, 'username', None),
         full_name=user.full_name,
         is_active=user.is_active,
         last_login_at=user.last_login_at.isoformat() if user.last_login_at else None,
@@ -572,7 +586,7 @@ def _build_login_response(
             id=str(organization.id),
             name=organization.name,
             slug=organization.slug,
-            role="owner"  # Default org owner for newly created
+            role=role
         )
 
     return LoginResponse(

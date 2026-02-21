@@ -7,152 +7,18 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-
-        .org-container {
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            width: 100%;
-            max-width: 500px;
-            padding: 40px;
-        }
-
-        .org-header {
-            text-align: center;
-            margin-bottom: 32px;
-        }
-
-        .org-logo {
-            font-size: 32px;
-            font-weight: 700;
-            color: #1e3a5f;
-            margin-bottom: 8px;
-        }
-
-        .org-subtitle {
-            color: #64748b;
-            font-size: 14px;
-        }
-
-        .org-list {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .org-card {
-            display: flex;
-            align-items: center;
-            padding: 16px;
-            border: 2px solid #e2e8f0;
-            border-radius: 12px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .org-card:hover {
-            border-color: #1e3a5f;
-            background: #f8fafc;
-        }
-
-        .org-icon {
-            width: 48px;
-            height: 48px;
-            background: #e0e7ff;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 16px;
-            font-size: 20px;
-        }
-
-        .org-info {
-            flex: 1;
-        }
-
-        .org-name {
-            font-weight: 600;
-            color: #1e3a5f;
-            margin-bottom: 4px;
-        }
-
-        .org-role {
-            font-size: 12px;
-            color: #64748b;
-            text-transform: capitalize;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #64748b;
-        }
-
-        .spinner {
-            display: inline-block;
-            width: 32px;
-            height: 32px;
-            border: 3px solid #e2e8f0;
-            border-top-color: #1e3a5f;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin-bottom: 16px;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .error-message {
-            padding: 16px;
-            background: #fef2f2;
-            color: #991b1b;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-size: 14px;
-        }
-
-        .logout-btn {
-            text-align: center;
-            margin-top: 24px;
-        }
-
-        .logout-btn a {
-            color: #64748b;
-            text-decoration: none;
-            font-size: 14px;
-        }
-
-        .logout-btn a:hover {
-            color: #1e3a5f;
-        }
-    </style>
+    <link rel="stylesheet" href="/static/css/auth.css">
 </head>
 <body>
+    <div class="bg-orbs"><div class="bg-orb-3"></div></div>
+
     <div class="org-container">
         <div class="org-header">
             <div class="org-logo">VOICEcheck</div>
             <div class="org-subtitle">Выберите организацию для работы</div>
         </div>
 
-        <div id="orgError" class="error-message" style="display: none;"></div>
+        <div class="error-msg" id="orgError" style="display: none;"></div>
 
         <div id="orgList" class="org-list">
             <div class="loading">
@@ -166,6 +32,7 @@
         </div>
     </div>
 
+    <script src="/static/js/utils.js"></script>
     <script>
         const API_BASE = window.location.origin;
         let currentToken = localStorage.getItem('access_token');
@@ -178,22 +45,17 @@
 
             try {
                 const response = await fetch(API_BASE + '/auth/organizations', {
-                    headers: {
-                        'Authorization': 'Bearer ' + currentToken
-                    }
+                    headers: { 'Authorization': 'Bearer ' + currentToken }
                 });
 
                 if (response.status === 401) {
-                    // Token invalid - redirect to login
                     localStorage.removeItem('access_token');
                     localStorage.removeItem('refresh_token');
                     window.location.href = '/static/auth.html';
                     return;
                 }
 
-                if (!response.ok) {
-                    throw new Error('Failed to load organizations: ' + response.status);
-                }
+                if (!response.ok) throw new Error('Failed to load organizations: ' + response.status);
 
                 const contentType = response.headers.get('content-type');
                 if (!contentType || !contentType.includes('application/json')) {
@@ -201,20 +63,14 @@
                 }
 
                 const orgs = await response.json();
-
-                if (!Array.isArray(orgs)) {
-                    throw new Error('Invalid response format');
-                }
+                if (!Array.isArray(orgs)) throw new Error('Invalid response format');
 
                 if (orgs.length === 0) {
-                    // User has no organizations - redirect to main app
-                    // Organizations are optional, so this is normal
                     window.location.href = '/';
                     return;
                 }
 
                 renderOrganizations(orgs);
-
             } catch (err) {
                 console.error('Error loading organizations:', err);
                 document.getElementById('orgError').textContent = 'Ошибка: ' + err.message;
@@ -234,7 +90,7 @@
             container.innerHTML = orgs.map(org => `
                 <div class="org-card" onclick="selectOrganization('${org.id}')">
                     <div class="org-icon">${org.name.charAt(0).toUpperCase()}</div>
-                    <div class="org-info">
+                    <div class="org-info-text">
                         <div class="org-name">${escapeHtml(org.name)}</div>
                         <div class="org-role">${roleLabels[org.role] || org.role}</div>
                     </div>
@@ -246,27 +102,18 @@
             try {
                 const response = await fetch(API_BASE + `/auth/select-organization/${orgId}`, {
                     method: 'POST',
-                    headers: {
-                        'Authorization': 'Bearer ' + currentToken
-                    }
+                    headers: { 'Authorization': 'Bearer ' + currentToken }
                 });
 
-                if (!response.ok) {
-                    throw new Error('Failed to select organization');
-                }
+                if (!response.ok) throw new Error('Failed to select organization');
 
                 const data = await response.json();
-
-                // Update tokens
                 localStorage.setItem('access_token', data.access_token);
                 localStorage.setItem('refresh_token', data.refresh_token);
                 currentToken = data.access_token;
 
-                // Get org details
-                const orgResponse = await fetch(API_BASE + `/auth/organizations`, {
-                    headers: {
-                        'Authorization': 'Bearer ' + currentToken
-                    }
+                const orgResponse = await fetch(API_BASE + '/auth/organizations', {
+                    headers: { 'Authorization': 'Bearer ' + currentToken }
                 });
                 const orgs = await orgResponse.json();
                 const currentOrg = orgs.find(o => o.id === orgId);
@@ -274,9 +121,7 @@
                     localStorage.setItem('current_org', JSON.stringify(currentOrg));
                 }
 
-                // Redirect to app
                 window.location.href = '/';
-
             } catch (err) {
                 console.error(err);
                 document.getElementById('orgError').textContent = 'Ошибка выбора организации';
@@ -284,51 +129,6 @@
             }
         }
 
-        async function refreshToken() {
-            const refreshToken = localStorage.getItem('refresh_token');
-            if (!refreshToken) {
-                logout();
-                return;
-            }
-
-            try {
-                const response = await fetch(API_BASE + '/auth/refresh', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ refresh_token: refreshToken })
-                });
-
-                if (!response.ok) {
-                    throw new Error('Token refresh failed');
-                }
-
-                const data = await response.json();
-                localStorage.setItem('access_token', data.access_token);
-                localStorage.setItem('refresh_token', data.refresh_token);
-                currentToken = data.access_token;
-
-                loadOrganizations();
-
-            } catch (err) {
-                logout();
-            }
-        }
-
-        function logout() {
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('refresh_token');
-            localStorage.removeItem('user');
-            localStorage.removeItem('current_org');
-            window.location.href = '/static/auth.html';
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        // Load on page load
         loadOrganizations();
     </script>
 </body>

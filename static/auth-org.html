@@ -7,204 +7,11 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-
-        .auth-container {
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            width: 100%;
-            max-width: 400px;
-            padding: 40px;
-        }
-
-        .auth-header {
-            text-align: center;
-            margin-bottom: 32px;
-        }
-
-        .auth-logo {
-            font-size: 32px;
-            font-weight: 700;
-            color: #1e3a5f;
-            margin-bottom: 8px;
-        }
-
-        .auth-subtitle {
-            color: #64748b;
-            font-size: 14px;
-        }
-
-        .org-info {
-            background: #f0f9ff;
-            border: 1px solid #bae6fd;
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 24px;
-            text-align: center;
-        }
-
-        .org-name {
-            font-weight: 600;
-            color: #0369a1;
-            margin-bottom: 4px;
-        }
-
-        .org-code {
-            font-size: 24px;
-            font-weight: 700;
-            color: #0c4a6e;
-            letter-spacing: 2px;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-label {
-            display: block;
-            margin-bottom: 8px;
-            font-size: 14px;
-            font-weight: 500;
-            color: #334155;
-        }
-
-        .form-input {
-            width: 100%;
-            padding: 12px 16px;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 14px;
-            transition: border-color 0.2s;
-        }
-
-        .form-input:focus {
-            outline: none;
-            border-color: #1e3a5f;
-            box-shadow: 0 0 0 3px rgba(30, 58, 95, 0.1);
-        }
-
-        .form-input.error {
-            border-color: #ef4444;
-        }
-
-        .form-error {
-            color: #ef4444;
-            font-size: 12px;
-            margin-top: 4px;
-            display: none;
-        }
-
-        .form-error.show {
-            display: block;
-        }
-
-        .btn {
-            width: 100%;
-            padding: 12px;
-            background: #1e3a5f;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .btn:hover {
-            background: #2d5a87;
-        }
-
-        .btn:disabled {
-            background: #94a3b8;
-            cursor: not-allowed;
-        }
-
-        .auth-message {
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-size: 14px;
-            display: none;
-        }
-
-        .auth-message.show {
-            display: block;
-        }
-
-        .auth-message.error {
-            background: #fef2f2;
-            color: #991b1b;
-            border: 1px solid #fecaca;
-        }
-
-        .spinner {
-            display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 2px solid #ffffff;
-            border-top-color: transparent;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .password-toggle {
-            position: relative;
-        }
-
-        .password-toggle-btn {
-            position: absolute;
-            right: 12px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: none;
-            border: none;
-            color: #64748b;
-            cursor: pointer;
-            font-size: 12px;
-        }
-
-        .password-toggle-btn:hover {
-            color: #1e3a5f;
-        }
-
-        .login-link {
-            text-align: center;
-            margin-top: 20px;
-            font-size: 14px;
-        }
-
-        .login-link a {
-            color: #1e3a5f;
-            text-decoration: none;
-        }
-
-        .login-link a:hover {
-            text-decoration: underline;
-        }
-    </style>
+    <link rel="stylesheet" href="/static/css/auth.css">
 </head>
 <body>
+    <div class="bg-orbs"><div class="bg-orb-3"></div></div>
+
     <div class="auth-container">
         <div class="auth-header">
             <div class="auth-logo">VOICEcheck</div>
@@ -216,46 +23,34 @@
             <div class="org-code" id="orgCode"></div>
         </div>
 
+        <div class="auth-tabs">
+            <button class="auth-tab active" data-form="login">Вход</button>
+            <button class="auth-tab" data-form="register">Регистрация</button>
+        </div>
+
         <div class="auth-message" id="authMessage"></div>
 
         <!-- Login Form -->
         <form class="auth-form active" id="loginForm">
             <div class="form-group">
                 <label class="form-label" for="orgCodeInput">Код организации</label>
-                <input
-                    type="text"
-                    id="orgCodeInput"
-                    class="form-input"
-                    placeholder="XXXXXX"
-                    maxlength="6"
+                <input type="text" id="orgCodeInput" class="form-input"
+                    placeholder="XXXXXX" maxlength="6"
                     style="text-transform: uppercase; text-align: center; font-size: 20px; letter-spacing: 2px;"
-                    required
-                >
-                <div class="form-error" id="orgCodeError"></div>
+                    required>
+                <div class="form-error" id="orgCodeInputError"></div>
             </div>
 
             <div class="form-group">
                 <label class="form-label" for="loginUsername">Логин</label>
-                <input
-                    type="text"
-                    id="loginUsername"
-                    class="form-input"
-                    placeholder="Ваш логин"
-                    required
-                >
+                <input type="text" id="loginUsername" class="form-input" placeholder="Ваш логин" required>
                 <div class="form-error" id="loginUsernameError"></div>
             </div>
 
             <div class="form-group">
                 <label class="form-label" for="loginPassword">Пароль</label>
                 <div class="password-toggle">
-                    <input
-                        type="password"
-                        id="loginPassword"
-                        class="form-input"
-                        placeholder="Введите пароль"
-                        required
-                    >
+                    <input type="password" id="loginPassword" class="form-input" placeholder="Введите пароль" required>
                     <button type="button" class="password-toggle-btn" onclick="togglePassword('loginPassword')">Показать</button>
                 </div>
                 <div class="form-error" id="loginPasswordError"></div>
@@ -266,83 +61,85 @@
             </button>
         </form>
 
+        <!-- Register Form -->
+        <form class="auth-form" id="registerForm">
+            <div class="form-group">
+                <label class="form-label" for="regOrgCode">Код организации</label>
+                <input type="text" id="regOrgCode" class="form-input"
+                    placeholder="XXXXXX" maxlength="6"
+                    style="text-transform: uppercase; text-align: center; font-size: 20px; letter-spacing: 2px;"
+                    required>
+                <div class="form-error" id="regOrgCodeError"></div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="regFullName">Полное имя</label>
+                <input type="text" id="regFullName" class="form-input" placeholder="Иван Иванов" required>
+                <div class="form-error" id="regFullNameError"></div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="regUsername">Логин</label>
+                <input type="text" id="regUsername" class="form-input" placeholder="Придумайте логин" required minlength="2">
+                <div class="form-error" id="regUsernameError"></div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="regPassword">Пароль</label>
+                <div class="password-toggle">
+                    <input type="password" id="regPassword" class="form-input" placeholder="Минимум 8 символов" required minlength="8">
+                    <button type="button" class="password-toggle-btn" onclick="togglePassword('regPassword')">Показать</button>
+                </div>
+                <div class="form-error" id="regPasswordError"></div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="regPasswordConfirm">Подтвердите пароль</label>
+                <div class="password-toggle">
+                    <input type="password" id="regPasswordConfirm" class="form-input" placeholder="Повторите пароль" required>
+                    <button type="button" class="password-toggle-btn" onclick="togglePassword('regPasswordConfirm')">Показать</button>
+                </div>
+                <div class="form-error" id="regPasswordConfirmError"></div>
+            </div>
+
+            <button type="submit" class="btn" id="registerBtn">
+                <span id="registerBtnText">Зарегистрироваться</span>
+            </button>
+        </form>
+
         <div class="login-link">
             <a href="/static/auth.html">Вход через Email</a>
         </div>
     </div>
 
+    <script src="/static/js/utils.js"></script>
     <script>
         const API_BASE = window.location.origin;
 
-        // Password toggle
-        function togglePassword(inputId) {
-            const input = document.getElementById(inputId);
-            const btn = input.nextElementSibling;
-            if (input.type === 'password') {
-                input.type = 'text';
-                btn.textContent = 'Скрыть';
-            } else {
-                input.type = 'password';
-                btn.textContent = 'Показать';
-            }
-        }
-
-        // Message handling
-        function showMessage(text, type = 'error') {
-            const msg = document.getElementById('authMessage');
-            msg.textContent = text;
-            msg.className = 'auth-message show ' + type;
-        }
-
-        function hideMessage() {
-            const msg = document.getElementById('authMessage');
-            msg.className = 'auth-message';
-        }
-
-        function showError(fieldId, text) {
-            const field = document.getElementById(fieldId);
-            const error = document.getElementById(fieldId + 'Error');
-            field.classList.add('error');
-            error.textContent = text;
-            error.classList.add('show');
-        }
-
-        function clearError(fieldId) {
-            const field = document.getElementById(fieldId);
-            const error = document.getElementById(fieldId + 'Error');
-            field.classList.remove('error');
-            error.classList.remove('show');
-        }
-
-        function clearAllErrors() {
-            document.querySelectorAll('.form-input').forEach(input => {
-                input.classList.remove('error');
+        // Tab switching
+        document.querySelectorAll('.auth-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.form + 'Form').classList.add('active');
+                hideMessage();
+                clearAllErrors();
             });
-            document.querySelectorAll('.form-error').forEach(error => {
-                error.classList.remove('show');
-            });
-        }
+        });
 
-        function setLoading(loading) {
-            const btn = document.getElementById('loginBtn');
-            const text = document.getElementById('loginBtnText');
-
-            if (loading) {
-                btn.disabled = true;
-                text.innerHTML = '<span class="spinner"></span>';
-            } else {
-                btn.disabled = false;
-                text.textContent = 'Войти';
-            }
-        }
-
-        // Get organization code from URL
+        // Get organization code from URL - supports both /login/{CODE} and /auth-org/{CODE}
         function getOrgCodeFromUrl() {
             const pathParts = window.location.pathname.split('/');
-            // URL format: /auth-org/{CODE}
-            const codeIndex = pathParts.indexOf('auth-org');
-            if (codeIndex !== -1 && pathParts[codeIndex + 1]) {
-                return pathParts[codeIndex + 1].toUpperCase();
+            // Check /login/{CODE}
+            const loginIndex = pathParts.indexOf('login');
+            if (loginIndex !== -1 && pathParts[loginIndex + 1]) {
+                return pathParts[loginIndex + 1].toUpperCase();
+            }
+            // Check /auth-org/{CODE}
+            const authOrgIndex = pathParts.indexOf('auth-org');
+            if (authOrgIndex !== -1 && pathParts[authOrgIndex + 1]) {
+                return pathParts[authOrgIndex + 1].toUpperCase();
             }
             return null;
         }
@@ -351,23 +148,18 @@
         async function loadOrganizationByCode(code) {
             try {
                 const response = await fetch(API_BASE + `/organizations/by-code/${code}`);
-
                 if (!response.ok) {
                     if (response.status === 404) {
-                        showError('orgCodeInput', 'Организация с таким кодом не найдена');
+                        showFieldError('orgCodeInput', 'Организация с таким кодом не найдена');
                         return null;
                     }
                     throw new Error('Failed to load organization');
                 }
-
                 const org = await response.json();
-
-                // Show org info
                 document.getElementById('orgInfo').style.display = 'block';
                 document.getElementById('orgName').textContent = org.name;
                 document.getElementById('orgCode').textContent = org.access_code;
                 document.getElementById('orgCodeInput').value = org.access_code;
-
                 return org;
             } catch (err) {
                 console.error('Error loading organization:', err);
@@ -386,69 +178,92 @@
             const username = document.getElementById('loginUsername').value.trim();
             const password = document.getElementById('loginPassword').value;
 
-            if (!orgCode) {
-                showError('orgCodeInput', 'Введите код организации');
-                return;
-            }
-            if (orgCode.length !== 6) {
-                showError('orgCodeInput', 'Код должен содержать 6 символов');
-                return;
-            }
-            if (!username) {
-                showError('loginUsername', 'Введите логин');
-                return;
-            }
-            if (!password) {
-                showError('loginPassword', 'Введите пароль');
-                return;
-            }
+            if (!orgCode) { showFieldError('orgCodeInput', 'Введите код организации'); return; }
+            if (orgCode.length !== 6) { showFieldError('orgCodeInput', 'Код должен содержать 6 символов'); return; }
+            if (!username) { showFieldError('loginUsername', 'Введите логин'); return; }
+            if (!password) { showFieldError('loginPassword', 'Введите пароль'); return; }
 
-            setLoading(true);
+            setButtonLoading('loginBtn', true);
 
             try {
-                // First get organization by code
                 const orgResponse = await fetch(API_BASE + `/organizations/by-code/${orgCode}`);
-                if (!orgResponse.ok) {
-                    throw new Error('Организация не найдена');
-                }
+                if (!orgResponse.ok) throw new Error('Организация не найдена');
                 const org = await orgResponse.json();
 
-                // Then login with username
                 const response = await fetch(API_BASE + '/auth/login-with-username', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        username,
-                        password,
-                        organization_id: org.id
-                    })
+                    body: JSON.stringify({ username, password, organization_id: org.id })
                 });
 
                 const data = await response.json();
-
                 if (!response.ok) {
-                    throw new Error(data.detail || 'Ошибка входа');
+                    const d = data.detail;
+                    const msg = typeof d === 'string' ? d : (d?.detail || d?.error || 'Ошибка входа');
+                    throw new Error(msg);
                 }
 
-                // Store tokens
+                localStorage.setItem('access_token', data.access_token);
+                localStorage.setItem('refresh_token', data.refresh_token);
+                localStorage.setItem('user', JSON.stringify(data.user));
+                localStorage.setItem('current_org', JSON.stringify(data.organization));
+                window.location.href = '/';
+            } catch (err) {
+                showMessage(err.message, 'error');
+                setButtonLoading('loginBtn', false, 'Войти');
+            }
+        });
+
+        // Register handler
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            clearAllErrors();
+            hideMessage();
+
+            const orgCode = document.getElementById('regOrgCode').value.trim().toUpperCase();
+            const fullName = document.getElementById('regFullName').value.trim();
+            const username = document.getElementById('regUsername').value.trim();
+            const password = document.getElementById('regPassword').value;
+            const confirm = document.getElementById('regPasswordConfirm').value;
+
+            if (!orgCode || orgCode.length !== 6) { showFieldError('regOrgCode', 'Введите 6-значный код организации'); return; }
+            if (!fullName) { showFieldError('regFullName', 'Введите полное имя'); return; }
+            if (!username || username.length < 2) { showFieldError('regUsername', 'Логин минимум 2 символа'); return; }
+            if (password.length < 8) { showFieldError('regPassword', 'Минимум 8 символов'); return; }
+            if (password !== confirm) { showFieldError('regPasswordConfirm', 'Пароли не совпадают'); return; }
+
+            setButtonLoading('registerBtn', true);
+
+            try {
+                const response = await fetch(API_BASE + `/organizations/join/${orgCode}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, full_name: fullName })
+                });
+
+                const data = await response.json();
+                if (!response.ok) {
+                    const d = data.detail;
+                    const msg = typeof d === 'string' ? d : (d?.detail || d?.error || 'Ошибка регистрации');
+                    throw new Error(msg);
+                }
+
                 localStorage.setItem('access_token', data.access_token);
                 localStorage.setItem('refresh_token', data.refresh_token);
                 localStorage.setItem('user', JSON.stringify(data.user));
                 localStorage.setItem('current_org', JSON.stringify(data.organization));
 
-                window.location.href = '/';
-
+                showMessage('Регистрация успешна! Перенаправление...', 'success');
+                setTimeout(() => { window.location.href = '/'; }, 1000);
             } catch (err) {
                 showMessage(err.message, 'error');
-                setLoading(false);
+                setButtonLoading('registerBtn', false, 'Зарегистрироваться');
             }
         });
 
         // Clear errors on input
         document.querySelectorAll('.form-input').forEach(input => {
-            input.addEventListener('input', () => {
-                clearError(input.id);
-            });
+            input.addEventListener('input', () => clearFieldError(input.id));
         });
 
         // Load organization on page load if code in URL
@@ -456,20 +271,14 @@
             const orgCode = getOrgCodeFromUrl();
             if (orgCode) {
                 loadOrganizationByCode(orgCode);
+                document.getElementById('regOrgCode').value = orgCode;
             }
 
-            // Check if already logged in
             const token = localStorage.getItem('access_token');
             if (token) {
                 fetch(API_BASE + '/auth/me', {
-                    headers: {
-                        'Authorization': 'Bearer ' + token
-                    }
-                }).then(res => {
-                    if (res.ok) {
-                        window.location.href = '/';
-                    }
-                });
+                    headers: { 'Authorization': 'Bearer ' + token }
+                }).then(res => { if (res.ok) window.location.href = '/'; });
             }
         });
     </script>

@@ -147,13 +147,17 @@ class DialogueAnalysisPrompts:
                  - sales: Total speaking time in seconds for sales representative
                  - customer: Total speaking time in seconds for customer
         """
-        return """Анализируй транскрипцию и подсчитай распределение времени между спикерами.
+        return f"""Анализируй транскрипцию и подсчитай распределение времени между спикерами.
+SPEAKER_00 = продавец (sales), SPEAKER_01 = клиент (customer).
+Суммируй длительность каждого сегмента по спикерам.
 
-Формат ответа:
+Верни ТОЛЬКО JSON без пояснений:
 ```json
 {{
-  "sales": 0,
-  "customer": 0
+  "speaking_time": {{
+    "sales": 0,
+    "customer": 0
+  }}
 }}
 ```
 

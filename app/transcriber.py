@@ -15,6 +15,8 @@ Environment variables:
 """
 
 import os
+import re
+import json
 import logging
 import asyncio
 import time
@@ -35,6 +37,12 @@ DEEPGRAM_MODEL = os.getenv("DEEPGRAM_MODEL", "whisper")
 DEEPGRAM_LANGUAGE = os.getenv("DEEPGRAM_LANGUAGE", "ru")
 DEEPGRAM_TIMEOUT = int(os.getenv("DEEPGRAM_TIMEOUT", "300"))
 
+# Z.ai (Claude) for diarization
+ZAI_API_URL = "https://api.z.ai/api/anthropic/v1/messages"
+ZAI_API_KEY = os.getenv("ZAI_API_KEY", "")
+ZAI_MODEL = os.getenv("ZAI_MODEL", "claude-3-5-sonnet")
+ZAI_DIARIZATION_TIMEOUT = int(os.getenv("ZAI_TIMEOUT", "180"))
+
 SUPPORTED_AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".mp4", ".webm"}
 DEFAULT_CACHE_SIZE = int(os.getenv("TRANSCRIPTION_CACHE_SIZE", "100"))
 
@@ -49,9 +57,10 @@ CONTENT_TYPES: Dict[str, str] = {
     ".webm": "audio/webm",
 }
 
-# Speaker diarization defaults
-DIARIZATION_NUM_SPEAKERS = 2
-SPEAKER_DEFAULT_LABEL = "SPEAKER_00"
+# Speaker labels
+SPEAKER_SALES = "SPEAKER_00"
+SPEAKER_CUSTOMER = "SPEAKER_01"
+SPEAKER_DEFAULT_LABEL = SPEAKER_SALES
 
 
 class DeepgramTranscriptionService:
@@ -192,13 +201,12 @@ class DeepgramTranscriptionService:
             logger.info(f"Cache hit for {audio_path.name}")
             return self._cache[cache_key]
 
-        # Build Deepgram request — diarize is always on
+        # Build Deepgram request — diarize removed, z.ai handles speaker roles
         lang = language or self.language
         params: Dict[str, str] = {
             "model": self.model,
             "punctuate": "true",
             "smart_format": "true",
-            "diarize": "true",
         }
         if lang and lang != "auto":
             params["language"] = lang
@@ -207,17 +215,20 @@ class DeepgramTranscriptionService:
             audio_path.suffix.lower(), "audio/mpeg"
         )
 
-        # Force with_speakers=True since diarize is always enabled
-        with_speakers = True
-
         logger.info(
             f"Transcribing {audio_path.name} via Deepgram "
-            f"(model={self.model}, lang={lang or 'auto'}, diarize=true)"
+            f"(model={self.model}, lang={lang or 'auto'})"
         )
 
         start_time = time.time()
 
         # Read file & POST to Deepgram
+        if not self.api_key:
+            raise RuntimeError(
+                "Deepgram API key is not configured. "
+                "Set DEEPGRAM_API_KEY in your .env file."
+            )
+
         audio_bytes = audio_path.read_bytes()
 
         response = httpx.post(
@@ -241,8 +252,32 @@ class DeepgramTranscriptionService:
         data = response.json()
         transcription_time = time.time() - start_time
 
-        # Parse response
-        result = self._parse_deepgram_response(data, with_speakers, transcription_time)
+        # Parse response without speaker info (Deepgram diarize disabled)
+        result = self._parse_deepgram_response(data, False, transcription_time)
+
+        # Apply z.ai diarization if requested
+        if with_speakers and result.get("segments"):
+            logger.info("Running z.ai diarization...")
+            result["segments"], zai_debug = _diarize_with_zai(result["segments"])
+            result["_zai_debug"] = zai_debug
+
+            # Build speaker_roles from z.ai-labeled segments
+            speaker_word_counts: Dict[str, int] = {}
+            for seg in result["segments"]:
+                spk = seg.get("speaker")
+                if spk:
+                    speaker_word_counts[spk] = (
+                        speaker_word_counts.get(spk, 0) + len(seg["text"].split())
+                    )
+            speaker_roles: Dict[str, str] = {
+                SPEAKER_SALES: "sales",
+                SPEAKER_CUSTOMER: "customer",
+            }
+            result["speaker_roles"] = {
+                spk: speaker_roles.get(spk, "unknown")
+                for spk in speaker_word_counts
+            }
+            result["num_speakers"] = len(speaker_word_counts)
 
         # Cache
         self._cache_put(cache_key, result)
@@ -321,28 +356,6 @@ class DeepgramTranscriptionService:
             "transcription_time": transcription_time,
             "real_time_factor": rtf,
         }
-
-        # Speaker roles (compatible with old WhisperService)
-        if with_speakers:
-            speaker_word_counts: Dict[str, int] = {}
-            for seg in segments:
-                spk = seg.get("speaker", SPEAKER_DEFAULT_LABEL)
-                speaker_word_counts[spk] = (
-                    speaker_word_counts.get(spk, 0) + len(seg["text"].split())
-                )
-
-            sorted_speakers = sorted(
-                speaker_word_counts.items(), key=lambda x: x[1], reverse=True
-            )
-            speaker_roles: Dict[str, str] = {}
-            if len(sorted_speakers) >= 2:
-                speaker_roles[sorted_speakers[0][0]] = "sales"
-                speaker_roles[sorted_speakers[1][0]] = "customer"
-            elif sorted_speakers:
-                speaker_roles[sorted_speakers[0][0]] = "sales"
-
-            result["speaker_roles"] = speaker_roles
-            result["num_speakers"] = len(sorted_speakers)
 
         return result
 
@@ -459,6 +472,128 @@ def _words_to_segments(
 
     _flush()
     return segments
+
+
+# ---------------------------------------------------------------------------
+# Z.ai diarization: identify speaker roles using Claude via z.ai API
+# ---------------------------------------------------------------------------
+
+def _diarize_with_zai(segments: List[Dict[str, Any]]) -> tuple:
+    """
+    Use z.ai (Claude) to assign SPEAKER_00 / SPEAKER_01 labels to segments.
+
+    Sends a numbered list of segment texts to Claude and asks it to classify
+    each segment as belonging to the sales agent (SPEAKER_00) or the customer
+    (SPEAKER_01). Falls back gracefully — returns unchanged segments on any error.
+    """
+    global _last_zai_debug
+
+    if not segments:
+        return segments, None
+
+    if not ZAI_API_KEY:
+        logger.warning("z.ai diarization skipped: ZAI_API_KEY not set")
+        return segments, {"error": "ZAI_API_KEY not set"}
+
+    # Build numbered segment list (truncate very long segments for the prompt)
+    lines = [
+        f"[{i}] {seg.get('text', '')[:300]}"
+        for i, seg in enumerate(segments)
+    ]
+    segments_text = "\n".join(lines)
+
+    prompt = (
+        "Ты анализируешь транскрипцию телефонного разговора. "
+        "Твоя задача — определить, кому принадлежит каждая реплика.\n\n"
+        "Роли участников:\n"
+        "• SPEAKER_00 — сотрудник компании: менеджер по продажам, секретарь, консультант. "
+        "Как правило, первым начинает разговор, представляется, задаёт вопросы, "
+        "рассказывает об услугах или товарах, работает с возражениями.\n"
+        "• SPEAKER_01 — клиент / покупатель: звонит или отвечает на звонок, "
+        "задаёт вопросы, сомневается, принимает решение о покупке.\n\n"
+        "Если в записи явно слышны три разные роли (например, секретарь + менеджер + клиент), "
+        "всё равно используй только два кода: сотрудник → SPEAKER_00, клиент → SPEAKER_01.\n\n"
+        f"Пронумерованные реплики:\n{segments_text}\n\n"
+        "Верни ТОЛЬКО JSON-массив без каких-либо пояснений. Формат каждого элемента:\n"
+        '{"id": <номер>, "speaker": "SPEAKER_00" или "SPEAKER_01"}\n\n'
+        "Пример ответа:\n"
+        '[{"id":0,"speaker":"SPEAKER_00"},{"id":1,"speaker":"SPEAKER_01"},{"id":2,"speaker":"SPEAKER_00"}]'
+    )
+
+    try:
+        resp = httpx.post(
+            ZAI_API_URL,
+            json={
+                "model": ZAI_MODEL,
+                "max_tokens": max(512, len(segments) * 25),
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            headers={
+                "x-api-key": ZAI_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            timeout=ZAI_DIARIZATION_TIMEOUT,
+        )
+
+        resp_json = resp.json()
+        debug_info = {
+            "status_code": resp.status_code,
+            "prompt": prompt,
+            "raw_response": resp_json,
+        }
+
+        if resp.status_code != 200:
+            logger.error(
+                f"z.ai diarization API error {resp.status_code}: {resp.text[:300]}"
+            )
+            return segments, debug_info
+
+        content_blocks = resp_json.get("content", [])
+        raw_text = content_blocks[0].get("text", "") if content_blocks else ""
+        debug_info["raw_text"] = raw_text
+
+        # Extract JSON array from the response (Claude may add surrounding text)
+        match = re.search(r"\[[\s\S]*?\]", raw_text)
+        if not match:
+            logger.warning(
+                f"z.ai diarization: no JSON array found in response: {raw_text[:200]}"
+            )
+            return segments, debug_info
+
+        labels = json.loads(match.group())
+        label_map: Dict[int, str] = {
+            item["id"]: item["speaker"]
+            for item in labels
+            if isinstance(item.get("id"), int) and "speaker" in item
+        }
+
+        for i, seg in enumerate(segments):
+            if i in label_map:
+                seg["speaker"] = label_map[i]
+
+        logger.info(
+            f"z.ai diarization complete: {len(label_map)}/{len(segments)} segments labeled"
+        )
+        _last_zai_debug = debug_info
+        return segments, debug_info
+
+    except Exception as exc:
+        logger.error(f"z.ai diarization failed: {exc}")
+        _last_zai_debug = {"error": str(exc)}
+        return segments, {"error": str(exc)}  # graceful fallback
+
+
+# ---------------------------------------------------------------------------
+# Debug store: last z.ai diarization response (temporary, for dev only)
+# ---------------------------------------------------------------------------
+
+_last_zai_debug: Optional[Dict[str, Any]] = None
+
+
+def get_last_zai_debug() -> Optional[Dict[str, Any]]:
+    """Return the last stored z.ai diarization debug info (in-memory)."""
+    return _last_zai_debug
 
 
 # ---------------------------------------------------------------------------

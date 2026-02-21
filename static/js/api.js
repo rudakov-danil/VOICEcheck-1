@@ -202,26 +202,3 @@ class APIError extends Error {
 // Create global API client
 const api = new APIClient();
 
-// Check auth on page load
-window.addEventListener('load', async () => {
-    const isAuthPage = window.location.pathname.includes('auth.html') ||
-                       window.location.pathname.includes('select-organization.html');
-
-    if (!isAuthPage && !api.isAuthenticated()) {
-        // Not authenticated and not on auth page - redirect to login
-        // But only if auth is enabled on the server
-        try {
-            const response = await fetch(API_BASE + '/health');
-            if (response.ok) {
-                const health = await response.json();
-                if (health.database === 'available') {
-                    // DB is available - check if auth is enabled
-                    // For now, assume auth is required
-                    window.location.href = '/static/auth.html';
-                }
-            }
-        } catch (err) {
-            // Can't check - continue normally
-        }
-    }
-});

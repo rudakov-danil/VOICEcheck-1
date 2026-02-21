@@ -369,8 +369,19 @@ class LLMAnalyzer:
 
         try:
             response_text = await self._call_llm_api(prompt)
-            data = self._parse_response(response_text)
-            return data["speaking_time"]
+            # Parse speaking_time directly — don't use _parse_response (needs all analysis fields)
+            text = response_text.strip()
+            if text.startswith("```json"):
+                text = text[7:]
+            if text.startswith("```"):
+                text = text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+            data = json.loads(text.strip())
+            st = data.get("speaking_time", data)  # support both wrapped and flat formats
+            if "sales" in st and "customer" in st:
+                return {"sales": float(st["sales"]), "customer": float(st["customer"])}
+            raise ValueError(f"Unexpected speaking_time format: {st}")
         except Exception as e:
             logger.warning(f"Failed to analyze speaking time, calculating manually: {e}")
             # Fallback: calculate based on segment durations

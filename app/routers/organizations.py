@@ -19,6 +19,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from pydantic import BaseModel, EmailStr, Field, validator
+from sqlalchemy import select as sa_select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database.connection import get_db
@@ -78,6 +79,13 @@ class AddExistingMemberRequest(BaseModel):
     role: str = Field(default="member", pattern="^(owner|admin|member|viewer)$")
 
 
+class SelfRegisterRequest(BaseModel):
+    """Request model for self-registration via organization link."""
+    username: str = Field(..., min_length=2, max_length=100)
+    password: str = Field(..., min_length=8, max_length=128)
+    full_name: str = Field(..., min_length=1, max_length=255)
+
+
 class ChangeRoleRequest(BaseModel):
     """Request model for changing member role."""
     role: str = Field(..., pattern="^(owner|admin|member|viewer)$")
@@ -90,6 +98,7 @@ class MemberResponse(BaseModel):
     email: Optional[str] = None
     full_name: str
     role: str
+    department_id: Optional[str] = None
     is_active: bool
     created_at: str
 
@@ -141,6 +150,56 @@ def check_auth_enabled() -> None:
         )
 
 
+async def _require_member_access(
+    organization_id: str,
+    user: User,
+    db: AsyncSession,
+    required_roles: list = None
+) -> tuple:
+    """
+    Check user has the required role in the org specified by URL path org_id.
+    This is used instead of AdminOrOwner/OwnerOnly (which read org from JWT,
+    causing failures when the token's org_id differs from the URL path org_id).
+    Returns (Organization, Membership).
+    """
+    if required_roles is None:
+        required_roles = ["admin", "owner"]
+
+    try:
+        org_uuid = UUID(organization_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "invalid_id", "detail": "Invalid organization ID"}
+        )
+
+    stmt = sa_select(Organization, Membership).join(
+        Membership, Membership.organization_id == Organization.id
+    ).where(
+        Membership.user_id == user.id,
+        Membership.organization_id == org_uuid,
+        Membership.is_active == True
+    )
+    result = await db.execute(stmt)
+    row = result.first()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "forbidden", "detail": "Not a member of this organization"}
+        )
+
+    organization, membership = row
+
+    if required_roles and membership.role not in required_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "forbidden", "detail": f"Requires role: {' or '.join(required_roles)}"}
+        )
+
+    return organization, membership
+
+
 # ============================================================
 # Organization CRUD Endpoints
 # ============================================================
@@ -181,6 +240,7 @@ async def create_organization(
             id=str(organization.id),
             name=organization.name,
             slug=organization.slug,
+            access_code=organization.access_code or "",
             is_active=organization.is_active,
             created_at=organization.created_at.isoformat() if organization.created_at else ""
         )
@@ -277,6 +337,93 @@ async def get_organization_by_code(
     )
 
 
+@router.post(
+    "/join/{access_code}",
+    responses={
+        200: {"description": "Successfully registered and joined"},
+        400: {"description": "Validation error or user exists"},
+        404: {"description": "Organization not found"}
+    },
+    summary="Self-register and join organization",
+    description="Public endpoint — register a new user via organization link."
+)
+async def self_register_and_join(
+    access_code: str,
+    data: SelfRegisterRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Self-register a new user and add them to an organization.
+
+    PUBLIC endpoint — no authentication required.
+    The user provides the org access code from the link, creates an account,
+    and is automatically added as a 'member'. Returns login tokens immediately.
+    """
+    check_auth_enabled()
+
+    org_service = OrganizationsService(db)
+    auth_service = org_service.auth_service
+
+    organization = await org_service.get_organization_by_access_code(access_code.upper())
+    if not organization:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Организация с таким кодом не найдена"
+        )
+
+    try:
+        user = await auth_service.create_user(
+            password=data.password,
+            full_name=data.full_name,
+            username=data.username,
+        )
+    except ValueError as e:
+        if "already exists" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Пользователь с таким логином уже существует"
+            )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    try:
+        membership = Membership(
+            user_id=user.id,
+            organization_id=organization.id,
+            role="member",
+            is_active=True,
+        )
+        db.add(membership)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Не удалось добавить в организацию"
+        )
+
+    session = await auth_service.create_session(user.id, organization.id)
+
+    return {
+        "access_token": session.access_token,
+        "refresh_token": session.refresh_token,
+        "token_type": "bearer",
+        "expires_in": 3600,
+        "user": {
+            "id": str(user.id),
+            "username": user.username,
+            "full_name": user.full_name,
+            "email": user.email or "",
+            "is_active": user.is_active,
+        },
+        "organization": {
+            "id": str(organization.id),
+            "name": organization.name,
+            "slug": organization.slug,
+            "role": "member"
+        }
+    }
+
+
 @router.put(
     "/{organization_id}",
     response_model=OrganizationResponse,
@@ -292,7 +439,8 @@ async def get_organization_by_code(
 async def update_organization(
     organization_id: str,
     data: UpdateOrganizationRequest,
-    org_ctx = Depends(AdminOrOwner),
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
     org_service: OrganizationsService = Depends(get_org_service)
 ):
     """
@@ -302,19 +450,14 @@ async def update_organization(
     """
     check_auth_enabled()
 
+    await _require_member_access(organization_id, user, db, ["admin", "owner"])
+
     try:
         org_uuid = UUID(organization_id)
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": "invalid_id", "detail": "Invalid organization ID"}
-        )
-
-    # Verify the org matches the context
-    if str(org_ctx.organization.id) != organization_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"error": "forbidden", "detail": "Can only update your own organization"}
         )
 
     organization = await org_service.update_organization(org_uuid, name=data.name)
@@ -329,6 +472,7 @@ async def update_organization(
         id=str(organization.id),
         name=organization.name,
         slug=organization.slug,
+        access_code=organization.access_code or "",
         is_active=organization.is_active,
         created_at=organization.created_at.isoformat() if organization.created_at else ""
     )
@@ -347,7 +491,8 @@ async def update_organization(
 )
 async def delete_organization(
     organization_id: str,
-    org_ctx = Depends(OwnerOnly),
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
     org_service: OrganizationsService = Depends(get_org_service)
 ):
     """
@@ -358,19 +503,14 @@ async def delete_organization(
     """
     check_auth_enabled()
 
+    await _require_member_access(organization_id, user, db, ["owner"])
+
     try:
         org_uuid = UUID(organization_id)
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": "invalid_id", "detail": "Invalid organization ID"}
-        )
-
-    # Verify ownership
-    if str(org_ctx.organization.id) != organization_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"error": "forbidden", "detail": "Not the owner of this organization"}
         )
 
     success = await org_service.delete_organization(org_uuid)
@@ -439,6 +579,7 @@ async def list_members(
             email=member_user.email,
             full_name=member_user.full_name,
             role=membership.role,
+            department_id=str(membership.department_id) if membership.department_id else None,
             is_active=membership.is_active,
             created_at=member_user.created_at.isoformat() if member_user.created_at else ""
         )
@@ -631,7 +772,8 @@ async def add_existing_member(
 async def remove_member(
     organization_id: str,
     user_id: str,
-    org_ctx = Depends(AdminOrOwner),
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
     org_service: OrganizationsService = Depends(get_org_service)
 ):
     """
@@ -642,6 +784,8 @@ async def remove_member(
     """
     check_auth_enabled()
 
+    await _require_member_access(organization_id, user, db, ["admin", "owner"])
+
     try:
         org_uuid = UUID(organization_id)
         user_uuid = UUID(user_id)
@@ -649,13 +793,6 @@ async def remove_member(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": "invalid_id", "detail": "Invalid ID"}
-        )
-
-    # Verify org matches context
-    if str(org_ctx.organization.id) != organization_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"error": "forbidden", "detail": "Not your organization"}
         )
 
     try:
@@ -697,7 +834,8 @@ async def change_member_role(
     organization_id: str,
     user_id: str,
     data: ChangeRoleRequest,
-    org_ctx = Depends(AdminOrOwner),
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
     org_service: OrganizationsService = Depends(get_org_service)
 ):
     """
@@ -708,6 +846,8 @@ async def change_member_role(
     """
     check_auth_enabled()
 
+    await _require_member_access(organization_id, user, db, ["admin", "owner"])
+
     try:
         org_uuid = UUID(organization_id)
         user_uuid = UUID(user_id)
@@ -715,13 +855,6 @@ async def change_member_role(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": "invalid_id", "detail": "Invalid ID"}
-        )
-
-    # Verify org matches context
-    if str(org_ctx.organization.id) != organization_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"error": "forbidden", "detail": "Not your organization"}
         )
 
     try:
@@ -737,13 +870,13 @@ async def change_member_role(
 
         # Get user for response
         auth_service = org_service.auth_service
-        user = await auth_service.get_user_by_id(membership.user_id)
+        member_user = await auth_service.get_user_by_id(membership.user_id)
 
         return MemberResponse(
-            id=str(user.id),
-            email=user.email,
-            full_name=user.full_name,
-            is_active=user.is_active,
+            id=str(member_user.id),
+            email=member_user.email,
+            full_name=member_user.full_name,
+            is_active=member_user.is_active,
             role=membership.role,
             created_at=membership.created_at.isoformat() if membership.created_at else ""
         )
