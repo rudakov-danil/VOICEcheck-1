@@ -41,7 +41,7 @@ DEEPGRAM_TIMEOUT = int(os.getenv("DEEPGRAM_TIMEOUT", "300"))
 ZAI_API_URL = "https://api.z.ai/api/anthropic/v1/messages"
 ZAI_API_KEY = os.getenv("ZAI_API_KEY", "")
 ZAI_MODEL = os.getenv("ZAI_MODEL", "claude-3-5-sonnet")
-ZAI_DIARIZATION_TIMEOUT = int(os.getenv("ZAI_TIMEOUT", "180"))
+ZAI_DIARIZATION_TIMEOUT = int(os.getenv("ZAI_TIMEOUT", "600"))
 
 SUPPORTED_AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".mp4", ".webm"}
 DEFAULT_CACHE_SIZE = int(os.getenv("TRANSCRIPTION_CACHE_SIZE", "100"))
@@ -495,10 +495,24 @@ def _diarize_with_zai(segments: List[Dict[str, Any]]) -> tuple:
         logger.warning("z.ai diarization skipped: ZAI_API_KEY not set")
         return segments, {"error": "ZAI_API_KEY not set"}
 
+    # For very long recordings, sample segments evenly to avoid timeout
+    MAX_SEGMENTS_FOR_DIARIZATION = 400
+    if len(segments) > MAX_SEGMENTS_FOR_DIARIZATION:
+        step = len(segments) / MAX_SEGMENTS_FOR_DIARIZATION
+        sampled_indices = [int(i * step) for i in range(MAX_SEGMENTS_FOR_DIARIZATION)]
+        sampled_segments = [segments[i] for i in sampled_indices]
+        logger.info(
+            f"Diarization: sampling {MAX_SEGMENTS_FOR_DIARIZATION}/{len(segments)} segments "
+            f"for z.ai (file too long)"
+        )
+    else:
+        sampled_indices = list(range(len(segments)))
+        sampled_segments = segments
+
     # Build numbered segment list (truncate very long segments for the prompt)
     lines = [
-        f"[{i}] {seg.get('text', '')[:300]}"
-        for i, seg in enumerate(segments)
+        f"[{i}] {seg.get('text', '')[:200]}"
+        for i, seg in enumerate(sampled_segments)
     ]
     segments_text = "\n".join(lines)
 
@@ -568,9 +582,18 @@ def _diarize_with_zai(segments: List[Dict[str, Any]]) -> tuple:
             if isinstance(item.get("id"), int) and "speaker" in item
         }
 
-        for i, seg in enumerate(segments):
-            if i in label_map:
-                seg["speaker"] = label_map[i]
+        # Apply labels: map sampled positions back to original segment indices
+        for sampled_pos, orig_idx in enumerate(sampled_indices):
+            if sampled_pos in label_map:
+                segments[orig_idx]["speaker"] = label_map[sampled_pos]
+
+        # Fill in gaps between sampled segments using nearest-neighbor
+        last_speaker = SPEAKER_SALES
+        for seg in segments:
+            if "speaker" in seg:
+                last_speaker = seg["speaker"]
+            else:
+                seg["speaker"] = last_speaker
 
         logger.info(
             f"z.ai diarization complete: {len(label_map)}/{len(segments)} segments labeled"

@@ -68,10 +68,11 @@ from .database.connection import init_db, close_db, health_check
 from .database import models as db_models
 from .routers.dialogs import router as dialogs_router
 from .routers.export import router as export_router
+from .routers.companies import router as companies_router
 from .config import get_settings
 
 # Auth imports
-from .auth.dependencies import require_auth, get_token_from_header
+from .auth.dependencies import require_auth, get_token_from_header, get_current_organization, OrganizationContext
 from .auth.service import AuthService
 from .auth.models import User, Membership
 
@@ -169,6 +170,7 @@ async def get_sellers(
 # Note: Sellers endpoint is defined BEFORE dialogs router to avoid route conflicts
 app.include_router(export_router)
 app.include_router(dialogs_router)
+app.include_router(companies_router)
 
 # Include auth routers if enabled
 if settings.auth_enabled:
@@ -534,7 +536,8 @@ async def upload_file(
     file: UploadFile = File(...),
     seller_name: Optional[str] = Form(default=None),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_auth)
+    user: User = Depends(require_auth),
+    org_ctx: Optional[OrganizationContext] = Depends(get_current_organization),
 ) -> UploadResponse:
     """
     Upload audio file for transcription and create dialog record.
@@ -610,6 +613,26 @@ async def upload_file(
         dialog_uuid = uuid4()
         logger.info(f"Creating dialog with UUID: {dialog_uuid}")
 
+        # Determine owner: prefer active org from JWT, fall back to user's first org
+        dialog_owner_type: Optional[str] = None
+        dialog_owner_id = None
+        if org_ctx:
+            dialog_owner_type = "organization"
+            dialog_owner_id = org_ctx.organization.id
+        else:
+            # Try to find the user's first active organisation
+            _mem = (await db.execute(
+                select(Membership.organization_id)
+                .where(and_(Membership.user_id == user.id, Membership.is_active == True))
+                .limit(1)
+            )).fetchone()
+            if _mem:
+                dialog_owner_type = "organization"
+                dialog_owner_id = _mem[0]
+            else:
+                dialog_owner_type = "user"
+                dialog_owner_id = user.id
+
         db_dialog = db_models.Dialog(
             id=dialog_uuid,
             filename=file.filename,
@@ -618,7 +641,9 @@ async def upload_file(
             file_path=str(saved_path),
             language=None,
             seller_name=seller_name,
-            created_by=user.id
+            created_by=user.id,
+            owner_type=dialog_owner_type,
+            owner_id=dialog_owner_id,
         )
         db.add(db_dialog)
         await db.commit()

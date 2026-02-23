@@ -26,6 +26,8 @@ from sqlalchemy.sql import func
 import uuid
 from typing import Optional
 
+
+
 Base = declarative_base()
 
 
@@ -93,11 +95,17 @@ class Dialog(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(),
                        comment="Record last update timestamp")
 
+    # Company link (optional)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="SET NULL"),
+                        nullable=True, index=True,
+                        comment="Linked company (CRM)")
+
     # ORM relationships
     transcriptions = relationship("Transcription", back_populates="dialog",
                                  cascade="all, delete-orphan")
     analyses = relationship("DialogAnalysis", back_populates="dialog",
                            cascade="all, delete-orphan")
+    company = relationship("Company", back_populates="dialogs")
 
     def belongs_to_organization(self, organization_id: Optional[uuid.UUID]) -> bool:
         """
@@ -251,4 +259,83 @@ class DialogAnalysis(Base):
     # Relationship
     dialog = relationship("Dialog", back_populates="analyses")
 
+
+class Company(Base):
+    """
+    Модель компании (CRM-контакт).
+
+    Хранит информацию о компаниях-клиентах с привязкой к организации-владельцу.
+    Может быть создана вручную или импортирована из CSV.
+
+    Attributes:
+        id: UUID компании
+        owner_type: Тип владельца ('organization'|'user'|None)
+        owner_id: ID владельца
+        created_by: ID пользователя, создавшего запись
+        name: Название компании (обязательное)
+        inn: ИНН (российский налоговый идентификатор)
+        external_id: ID во внешней системе (1С и т.п.)
+        contact_person: Контактное лицо
+        phone: Телефон
+        email: Email
+        address: Адрес
+        industry: Отрасль
+        funnel_stage: Этап воронки
+        custom_fields: Произвольные поля (JSONB, до 5 ключей)
+    """
+    __tablename__ = "companies"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+
+    # Multi-tenancy ownership
+    owner_type = Column(String(50), nullable=True, index=True,
+                        comment="Owner type: 'organization'|'user'|None")
+    owner_id = Column(UUID(as_uuid=True), nullable=True, index=True,
+                      comment="Owner ID")
+    created_by = Column(UUID(as_uuid=True), nullable=True, index=True,
+                        comment="User who created this company")
+
+    # Core fields
+    name = Column(String(255), nullable=False, index=True)
+    inn = Column(String(20), nullable=True, index=True,
+                 comment="Russian tax ID (ИНН)")
+    external_id = Column(String(255), nullable=True, index=True,
+                         comment="ID in external system (e.g. 1C)")
+    contact_person = Column(String(255), nullable=True)
+    phone = Column(String(100), nullable=True)
+    email = Column(String(255), nullable=True)
+    address = Column(Text, nullable=True)
+    responsible = Column(String(255), nullable=True,
+                         comment="Responsible seller name")
+    industry = Column(String(255), nullable=True)
+    funnel_stage = Column(String(100), nullable=True)
+    custom_fields = Column(JSONB, nullable=True,
+                           comment="Up to 5 custom fields {key: value}")
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    dialogs = relationship("Dialog", back_populates="company")
+
+
+class CsvImportMapping(Base):
+    """
+    Сохранённый маппинг колонок CSV для повторного импорта.
+
+    Позволяет запоминать соответствие колонок CSV полям системы
+    для конкретной организации/пользователя.
+    """
+    __tablename__ = "csv_import_mappings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_type = Column(String(50), nullable=True, index=True)
+    owner_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    name = Column(String(255), nullable=False,
+                  comment="Mapping name (e.g. 'Из 1С-Бухгалтерии')")
+    mapping = Column(JSONB, nullable=False,
+                     comment="Column mapping: {csv_column_name: system_field_name}")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

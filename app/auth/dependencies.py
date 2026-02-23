@@ -28,6 +28,7 @@ Usage:
 from typing import Optional, Annotated
 from uuid import UUID
 from fastapi import Depends, HTTPException, status, Header
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database.connection import get_db

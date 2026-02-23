@@ -44,7 +44,7 @@ from ..transcriber import get_whisper_service, get_last_zai_debug
 from ..config import AUTH_ENABLED
 
 # Auth imports
-from ..auth.dependencies import require_auth
+from ..auth.dependencies import require_auth, get_current_organization, OrganizationContext
 from ..auth.models import User
 
 logger = logging.getLogger(__name__)
@@ -57,42 +57,29 @@ router = APIRouter(prefix="/dialogs", tags=["dialogs"])
 
 async def get_accessible_dialog_filter(
     user: User,
-    user_org_ids: List[UUID]
+    user_org_ids: List[UUID],
+    active_org_id=None,
 ) -> List[Any]:
     """
     Build filter conditions for dialogs accessible by user.
-
-    Returns dialogs owned by user directly OR by user's organizations.
-
-    Args:
-        user: Authenticated user
-        user_org_ids: List of organization IDs user belongs to
-
-    Returns:
-        List of SQLAlchemy conditions for filtering
+    If active_org_id is set, filter by that single org only.
     """
-    from uuid import UUID as UUIDType
+    if active_org_id:
+        return [
+            and_(
+                db_models.Dialog.owner_type == "organization",
+                db_models.Dialog.owner_id == active_org_id,
+            )
+        ]
 
     conditions = []
-
-    conditions = []
-
-    # Build OR condition: (owner_type IS NULL) OR
-    #                    (owner_type = 'user' AND owner_id = user.id) OR
-    #                    (owner_type = 'organization' AND owner_id IN user_orgs)
-
-    # Legacy dialogs (no owner)
     conditions.append(db_models.Dialog.owner_type.is_(None))
-
-    # User-owned dialogs
     conditions.append(
         and_(
             db_models.Dialog.owner_type == "user",
             db_models.Dialog.owner_id == user.id
         )
     )
-
-    # Organization-owned dialogs
     if user_org_ids:
         conditions.append(
             and_(
@@ -100,7 +87,6 @@ async def get_accessible_dialog_filter(
                 db_models.Dialog.owner_id.in_(user_org_ids)
             )
         )
-
     return conditions
 
 
@@ -151,7 +137,8 @@ async def get_dashboard_stats(
     date_to: Optional[datetime] = Query(None, description="End date filter"),
     seller_name: Optional[str] = Query(None, description="Filter by seller name"),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_auth)
+    user: User = Depends(require_auth),
+    org_ctx: Optional[OrganizationContext] = Depends(get_current_organization),
 ) -> Dict[str, Any]:
     """
     Return aggregate statistics for the team dashboard.
@@ -161,6 +148,7 @@ async def get_dashboard_stats(
     try:
         # Get user's organization IDs
         org_ids = await get_user_org_ids(user, db)
+        active_org_id = org_ctx.organization.id if org_ctx else None
 
         # Base conditions for dialogs
         conditions = []
@@ -172,7 +160,7 @@ async def get_dashboard_stats(
             conditions.append(db_models.Dialog.seller_name.ilike(f"%{seller_name}%"))
 
         # Apply auth filter
-        access_conditions = await get_accessible_dialog_filter(user, org_ids)
+        access_conditions = await get_accessible_dialog_filter(user, org_ids, active_org_id)
         # Combine access filter with other conditions using AND
         # Access filter is an OR list, so we need to wrap it
         if conditions:
@@ -188,7 +176,7 @@ async def get_dashboard_stats(
         analyzed_statuses = ['dealed', 'in_progress', 'rejected']
 
         if AUTH_ENABLED and user:
-            access_conditions = await get_accessible_dialog_filter(user, org_ids)
+            access_conditions = await get_accessible_dialog_filter(user, org_ids, active_org_id)
             base_cond = [or_(*access_conditions)]
         else:
             base_cond = []
@@ -216,7 +204,7 @@ async def get_dashboard_stats(
         )
 
         if AUTH_ENABLED and user:
-            access_conditions = await get_accessible_dialog_filter(user, org_ids)
+            access_conditions = await get_accessible_dialog_filter(user, org_ids, active_org_id)
             if conditions:
                 analyses_query = analyses_query.where(and_(or_(*access_conditions), and_(*conditions)))
             else:
@@ -359,7 +347,8 @@ async def get_dialogs(
     seller_name: Optional[str] = Query(None, description="Filter by seller name"),
     min_score: Optional[float] = Query(None, ge=0, le=10, description="Min overall score"),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_auth)
+    user: User = Depends(require_auth),
+    org_ctx: Optional[OrganizationContext] = Depends(get_current_organization),
 ) -> PaginatedResponse:
     """
     Retrieve paginated list of dialogs with filtering.
@@ -369,6 +358,7 @@ async def get_dialogs(
     try:
         # Get user's organization IDs
         org_ids = await get_user_org_ids(user, db)
+        active_org_id = org_ctx.organization.id if org_ctx else None
 
         query = select(db_models.Dialog).options(
             selectinload(db_models.Dialog.analyses)
@@ -404,7 +394,7 @@ async def get_dialogs(
             )
 
         # Apply auth filter
-        access_conditions = await get_accessible_dialog_filter(user, org_ids)
+        access_conditions = await get_accessible_dialog_filter(user, org_ids, active_org_id)
         # Combine: (access_filter) AND (other conditions)
         query = query.where(or_(*access_conditions))
         count_query = count_query.where(or_(*access_conditions))
@@ -428,6 +418,7 @@ async def get_dialogs(
             if has_analysis:
                 overall_score = dialog.analyses[0].scores.get('overall')
 
+            company_id = getattr(dialog, 'company_id', None)
             items.append({
                 "id": str(dialog.id),
                 "filename": dialog.filename,
@@ -435,6 +426,7 @@ async def get_dialogs(
                 "status": dialog.status,
                 "language": dialog.language,
                 "seller_name": getattr(dialog, 'seller_name', None),
+                "company_id": str(company_id) if company_id else None,
                 "created_at": dialog.created_at.isoformat(),
                 "has_analysis": has_analysis,
                 "overall_score": overall_score,
@@ -486,7 +478,8 @@ async def get_dialog_detail(
             db_models.Dialog.id == dialog_uuid
         ).options(
             selectinload(db_models.Dialog.transcriptions),
-            selectinload(db_models.Dialog.analyses)
+            selectinload(db_models.Dialog.analyses),
+            selectinload(db_models.Dialog.company),
         )
 
         result = await db.execute(query)
@@ -525,6 +518,7 @@ async def get_dialog_detail(
                 created_at=analysis_data.created_at
             )
 
+        company = getattr(dialog, 'company', None)
         return DialogDetail(
             id=str(dialog.id),
             filename=dialog.filename,
@@ -532,6 +526,8 @@ async def get_dialog_detail(
             status=dialog.status,
             language=dialog.language,
             seller_name=getattr(dialog, 'seller_name', None),
+            company_id=str(dialog.company_id) if getattr(dialog, 'company_id', None) else None,
+            company_name=company.name if company else None,
             created_at=dialog.created_at,
             transcription=dialog.transcriptions[0].text if dialog.transcriptions else None,
             segments=segments,
@@ -607,7 +603,7 @@ async def update_dialog_status(
         except ValueError:
             raise HTTPException(status_code=404, detail="Invalid dialog ID format")
 
-        valid_statuses = ["pending", "processing", "completed", "failed", "dealed", "in_progress", "rejected"]
+        valid_statuses = ["pending", "processing", "failed", "dealed", "in_progress", "rejected"]
         if status_update.status not in valid_statuses:
             raise HTTPException(
                 status_code=400,
@@ -833,9 +829,14 @@ async def process_transcription_and_analysis(
             except Exception as e:
                 logger.error(f"Analysis failed for dialog {task_id}: {e}")
 
-        dialog.status = "completed"
+        # Set status from AI analysis (dealed/in_progress/rejected)
+        # Fall back to "in_progress" if analysis didn't provide a status
+        if analysis and hasattr(analysis_result, 'status') and analysis_result.status in ('dealed', 'in_progress', 'rejected'):
+            dialog.status = analysis_result.status
+        else:
+            dialog.status = "in_progress"
         await db.commit()
-        logger.info(f"Completed processing for dialog {task_id}")
+        logger.info(f"Completed processing for dialog {task_id}, status={dialog.status}")
 
     except Exception as e:
         logger.error(f"Background task failed for {task_id}: {e}")

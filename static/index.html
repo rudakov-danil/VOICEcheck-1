@@ -20,15 +20,29 @@
                 <nav class="header-tabs">
                     <button class="tab-btn active" data-tab="upload">Загрузка</button>
                     <button class="tab-btn" data-tab="dialogs">Диалоги</button>
-                    <button class="tab-btn" data-tab="organizations">Организации</button>
+                    <button class="tab-btn" data-tab="companies">Компании</button>
                     <button class="tab-btn" data-tab="dashboard">Дашборд</button>
                 </nav>
 
                 <div class="header-auth" id="headerAuth">
                     <div class="auth-info" id="authInfo" style="display:none;">
-                        <span class="auth-user" id="authUserName"></span>
-                        <span class="auth-org" id="authOrgName"></span>
-                        <a href="#" class="auth-logout" id="logoutBtn">Выйти</a>
+                        <!-- Org switcher -->
+                        <div class="org-switcher" id="orgSwitcher">
+                            <span class="org-switcher-name" id="orgSwitcherName">Организация</span>
+                            <span class="org-switcher-arrow">▾</span>
+                            <div class="org-switcher-dropdown" id="orgSwitcherDropdown"></div>
+                        </div>
+                        <!-- User dropdown -->
+                        <div class="user-menu" id="userMenu">
+                            <span class="user-menu-name" id="authUserName">Пользователь</span>
+                            <span class="user-menu-arrow">▾</span>
+                            <div class="user-menu-dropdown" id="userMenuDropdown">
+                                <button class="user-menu-item" id="profileSettingsBtn">⚙ Настройки профиля</button>
+                                <button class="user-menu-item" id="orgsMenuBtn" style="display:none;">Организации</button>
+                                <div class="user-menu-divider"></div>
+                                <button class="user-menu-item danger" id="logoutBtn">→ Выйти</button>
+                            </div>
+                        </div>
                     </div>
                     <div class="auth-login-btn" id="authLoginBtn" style="display:none;">
                         <a href="/static/auth.html" class="btn btn-small">Войти</a>
@@ -122,10 +136,9 @@
                             </select>
                             <select id="statusFilter">
                                 <option value="">Все статусы</option>
-                                <option value="completed">Завершено</option>
-                                <option value="dealed">Сделка</option>
+                                <option value="dealed">Сделка состоялась</option>
                                 <option value="in_progress">В работе</option>
-                                <option value="rejected">Отклонено</option>
+                                <option value="rejected">Отказ</option>
                             </select>
                             <select id="scoreFilter">
                                 <option value="">Любой балл</option>
@@ -140,6 +153,56 @@
 
                     <div class="dialogs-list" id="dialogsList"></div>
                     <div class="pagination" id="pagination"></div>
+                </div>
+            </div>
+
+            <!-- Companies Tab -->
+            <div class="tab-pane" id="companies-tab">
+                <div class="companies-container">
+
+                    <!-- Companies List View -->
+                    <div id="companiesListView">
+                        <div class="companies-header">
+                            <h2>Компании</h2>
+                            <div class="companies-actions">
+                                <button class="btn btn-small" id="importCsvBtn">↑ Импорт CSV</button>
+                                <button class="btn btn-primary btn-small" id="createCompanyBtn">+ Добавить</button>
+                            </div>
+                        </div>
+                        <div class="companies-filters">
+                            <input type="text" id="companySearch" placeholder="Поиск по названию, ИНН..." class="filter-input">
+                            <select id="companySortBy" class="filter-input">
+                                <option value="created_at">По дате добавления</option>
+                                <option value="name">По названию</option>
+                                <option value="meetings_count">По встречам</option>
+                                <option value="avg_score">По среднему баллу</option>
+                            </select>
+                        </div>
+                        <div id="companiesTable" class="companies-table-wrap">
+                            <table class="companies-table">
+                                <thead>
+                                    <tr>
+                                        <th>Название</th>
+                                        <th>Контакт</th>
+                                        <th>Встречи</th>
+                                        <th>Последняя</th>
+                                        <th>Ср. балл</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="companiesTbody">
+                                    <tr><td colspan="6" class="no-data">Загрузка...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="pagination" id="companiesPagination"></div>
+                    </div>
+
+                    <!-- Company Detail View -->
+                    <div id="companyDetailView" style="display:none;">
+                        <button class="btn btn-secondary btn-small" id="backToCompaniesBtn" style="margin-bottom:16px;">← Назад к списку</button>
+                        <div id="companyDetailContent"></div>
+                    </div>
                 </div>
             </div>
 
@@ -244,8 +307,8 @@
                     <div class="form-group">
                         <label for="memberRole">Роль</label>
                         <select id="memberRole" class="form-input">
-                            <option value="member">Участник</option>
-                            <option value="admin">Администратор</option>
+                            <option value="member">Продавец</option>
+                            <option value="admin">Руководитель</option>
                             <option value="viewer">Зритель</option>
                         </select>
                     </div>
@@ -350,9 +413,182 @@
         </div>
     </div>
 
+    <!-- Create / Edit Company Modal -->
+    <div class="modal" id="companyFormModal">
+        <div class="modal-content" style="max-width:560px;">
+            <div class="modal-header">
+                <h3 id="companyFormTitle">Добавить компанию</h3>
+                <button class="close-btn" onclick="companiesModule.closeCompanyForm()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="companyForm">
+                    <div class="form-group">
+                        <label>Название *</label>
+                        <input type="text" id="cf_name" class="form-input" placeholder="ООО Ромашка" required>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>ИНН</label>
+                            <input type="text" id="cf_inn" class="form-input" placeholder="7701234567">
+                        </div>
+                        <div class="form-group">
+                            <label>Контактное лицо</label>
+                            <input type="text" id="cf_contact_person" class="form-input" placeholder="Иван Иванов">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Email</label>
+                            <input type="email" id="cf_email" class="form-input" placeholder="contact@example.ru">
+                        </div>
+                        <div class="form-group">
+                            <label>Телефон</label>
+                            <input type="text" id="cf_phone" class="form-input" placeholder="+7 (999) 123-45-67">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Адрес</label>
+                        <input type="text" id="cf_address" class="form-input" placeholder="г. Москва, ул. Ленина, 1">
+                    </div>
+                    <div class="form-group">
+                        <label>Ответственный</label>
+                        <select id="cf_responsible" class="form-input">
+                            <option value="">— Не назначен —</option>
+                        </select>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="companiesModule.closeCompanyForm()">Отмена</button>
+                        <button type="submit" class="btn btn-primary" id="companyFormSubmitBtn">Сохранить</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- CSV Import Modal -->
+    <div class="modal" id="csvImportModal">
+        <div class="modal-content" style="max-width:720px;">
+            <div class="modal-header">
+                <h3>Импорт компаний из CSV</h3>
+                <button class="close-btn" onclick="companiesModule.closeCsvImport()">&times;</button>
+            </div>
+            <div class="modal-body" id="csvImportBody">
+                <!-- Step 1: Upload -->
+                <div id="csvStep1">
+                    <div class="csv-upload-area" id="csvDropZone">
+                        <input type="file" id="csvFileInput" accept=".csv" style="display:none;">
+                        <div class="upload-icon">↑</div>
+                        <div class="upload-text">Перетащите CSV файл или нажмите для выбора</div>
+                        <div class="upload-hint">UTF-8 или Windows-1251 (1С). До 10 000 строк.</div>
+                    </div>
+                    <div id="csvUploadError" class="form-error" style="margin-top:8px;"></div>
+                </div>
+
+                <!-- Step 2: Field mapping -->
+                <div id="csvStep2" style="display:none;">
+                    <div class="csv-step-info">
+                        <span id="csvFileStats"></span>
+                    </div>
+                    <div class="csv-preview-wrap">
+                        <h4>Предпросмотр (первые 5 строк)</h4>
+                        <div class="table-scroll"><table id="csvPreviewTable" class="csv-preview-table"></table></div>
+                    </div>
+                    <div class="csv-mapping-wrap">
+                        <div class="csv-mapping-header">
+                            <h4>Сопоставление полей</h4>
+                            <div class="csv-saved-mappings">
+                                <label>Загрузить сохранённый маппинг:</label>
+                                <select id="savedMappingSelect">
+                                    <option value="">— выбрать —</option>
+                                </select>
+                            </div>
+                        </div>
+                        <table class="mapping-table">
+                            <thead><tr><th>Колонка CSV</th><th>Поле системы</th></tr></thead>
+                            <tbody id="mappingTableBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="csv-mapping-footer">
+                        <label>
+                            <input type="checkbox" id="saveMappingCheck"> Сохранить маппинг как:
+                        </label>
+                        <input type="text" id="saveMappingName" class="form-input" placeholder="Название (напр. Из 1С)" style="max-width:200px;display:inline-block;margin-left:8px;">
+                    </div>
+                    <div class="form-group" style="margin-top:16px;">
+                        <label>Действие при дублировании (по названию / ИНН)</label>
+                        <select id="duplicateAction" class="form-input">
+                            <option value="skip">Пропустить</option>
+                            <option value="update">Обновить существующую</option>
+                            <option value="create_new">Создать новую</option>
+                        </select>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="btn btn-secondary" onclick="companiesModule.csvBack()">← Назад</button>
+                        <button class="btn btn-primary" onclick="companiesModule.csvProcess()">Импортировать →</button>
+                    </div>
+                </div>
+
+                <!-- Step 3: Result -->
+                <div id="csvStep3" style="display:none;">
+                    <div id="csvImportResult"></div>
+                    <div class="modal-actions" style="margin-top:16px;">
+                        <button class="btn btn-secondary" onclick="companiesModule.closeCsvImport()">Закрыть</button>
+                        <button class="btn btn-primary" onclick="companiesModule.csvReset()">Импортировать ещё</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Profile Settings Modal -->
+    <div class="modal" id="profileModal">
+        <div class="modal-content" style="max-width:420px;">
+            <div class="modal-header">
+                <h3>Настройки профиля</h3>
+                <button class="modal-close" onclick="app.closeProfileModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Имя</label>
+                    <input type="text" id="profileNameInput" class="form-input" placeholder="Ваше имя">
+                </div>
+                <hr style="border-color:var(--border);margin:16px 0;">
+                <p style="font-size:0.8rem;color:var(--text-2);margin-bottom:12px;">Смена пароля (оставьте пустым, если не меняете)</p>
+                <div class="form-group">
+                    <label class="form-label">Текущий пароль</label>
+                    <input type="password" id="profileCurrentPassword" class="form-input" placeholder="Введите текущий пароль">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Новый пароль</label>
+                    <input type="password" id="profileNewPassword" class="form-input" placeholder="Минимум 8 символов">
+                </div>
+                <div id="profileError" style="color:var(--red);font-size:0.85rem;margin-top:8px;display:none;"></div>
+                <div id="profileSuccess" style="color:var(--green);font-size:0.85rem;margin-top:8px;display:none;">✓ Изменения сохранены</div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="app.closeProfileModal()">Отмена</button>
+                <button class="btn btn-primary" onclick="app.saveProfile()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Organizations Panel (accessible from user menu) -->
+    <div class="modal" id="orgsModal">
+        <div class="modal-content" style="max-width:700px;max-height:85vh;overflow-y:auto;">
+            <div class="modal-header">
+                <h3>Организации</h3>
+                <button class="modal-close" onclick="document.getElementById('orgsModal').classList.remove('active')">×</button>
+            </div>
+            <div class="modal-body" id="orgsModalBody">
+                <p style="color:var(--text-2)">Загрузка...</p>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/api.js"></script>
     <script src="/static/js/utils.js"></script>
     <script src="/static/js/organizations.js"></script>
-    <script src="/static/js/app.js?v=17"></script>
+    <script src="/static/js/companies.js?v=2"></script>
+    <script src="/static/js/app.js?v=20"></script>
 </body>
 </html>

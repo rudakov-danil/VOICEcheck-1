@@ -84,6 +84,8 @@ services:
         reservations:
           cpus: '1.0'
           memory: 2G
+    command: >
+      bash -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     restart: unless-stopped
     # Disable logging rate limit for development
     logging:

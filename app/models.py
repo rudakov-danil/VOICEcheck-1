@@ -99,6 +99,8 @@ class DialogDetail(BaseModel):
     status: str = Field(..., description="Dialog status")
     language: Optional[str] = Field(None, description="Detected language")
     seller_name: Optional[str] = Field(None, description="Salesperson name")
+    company_id: Optional[str] = Field(None, description="Linked company ID")
+    company_name: Optional[str] = Field(None, description="Linked company name")
     created_at: datetime = Field(..., description="Creation time")
     transcription: Optional[str] = Field(None, description="Transcription text")
     segments: Optional[List[dict]] = Field(None, description="Segments with speaker labels")

@@ -73,21 +73,196 @@ class VoiceCheckApp {
     addAuthUI() {
         const authInfoEl = document.getElementById('authInfo');
         const authLoginEl = document.getElementById('authLoginBtn');
-        const logoutBtn = document.getElementById('logoutBtn');
 
         if (currentUser) {
-            if (authInfoEl) {
-                document.getElementById('authUserName').textContent = currentUser.email || currentUser.username || '';
-                if (currentOrg) {
-                    document.getElementById('authOrgName').textContent = currentOrg.name;
-                }
-                authInfoEl.style.display = 'flex';
+            // Show name (full_name preferred, else email/username)
+            const displayName = currentUser.full_name || currentUser.email || currentUser.username || 'Пользователь';
+            const nameEl = document.getElementById('authUserName');
+            if (nameEl) nameEl.textContent = displayName;
+
+            // Show org name
+            const orgName = document.getElementById('orgSwitcherName');
+            if (orgName) orgName.textContent = currentOrg ? currentOrg.name : 'Без организации';
+
+            if (authInfoEl) authInfoEl.style.display = 'flex';
+
+            // Logout
+            const logoutBtn = document.getElementById('logoutBtn');
+            if (logoutBtn) logoutBtn.addEventListener('click', () => logout());
+
+            // Profile settings
+            const profileBtn = document.getElementById('profileSettingsBtn');
+            if (profileBtn) profileBtn.addEventListener('click', () => { this.closeAllDropdowns(); this.openProfileModal(); });
+
+            // Orgs menu button (admin/owner only)
+            const orgsBtn = document.getElementById('orgsMenuBtn');
+            const isAdmin = currentOrg && (currentOrg.role === 'owner' || currentOrg.role === 'admin');
+            if (orgsBtn && isAdmin) {
+                orgsBtn.style.display = '';
+                orgsBtn.addEventListener('click', () => { this.closeAllDropdowns(); this.openOrgsModal(); });
             }
-            if (logoutBtn) logoutBtn.addEventListener('click', (e) => { e.preventDefault(); logout(); });
+
+            // User menu toggle
+            const userMenu = document.getElementById('userMenu');
+            if (userMenu) {
+                userMenu.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const dropdown = document.getElementById('userMenuDropdown');
+                    const orgDropdown = document.getElementById('orgSwitcherDropdown');
+                    orgDropdown.style.display = 'none';
+                    dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+                });
+            }
+
+            // Org switcher toggle
+            const orgSwitcher = document.getElementById('orgSwitcher');
+            if (orgSwitcher) {
+                orgSwitcher.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const dropdown = document.getElementById('orgSwitcherDropdown');
+                    const userDropdown = document.getElementById('userMenuDropdown');
+                    userDropdown.style.display = 'none';
+                    const isOpen = dropdown.style.display === 'block';
+                    if (!isOpen) this.loadOrgSwitcherList();
+                    dropdown.style.display = isOpen ? 'none' : 'block';
+                });
+            }
+
+            // Close dropdowns on outside click
+            document.addEventListener('click', () => this.closeAllDropdowns());
+
+            // Auto-select org on load if missing
+            this.ensureActiveOrg();
         } else {
             if (authInfoEl) authInfoEl.style.display = 'none';
             if (authLoginEl) authLoginEl.style.display = 'block';
         }
+    }
+
+    closeAllDropdowns() {
+        const d1 = document.getElementById('userMenuDropdown');
+        const d2 = document.getElementById('orgSwitcherDropdown');
+        if (d1) d1.style.display = 'none';
+        if (d2) d2.style.display = 'none';
+    }
+
+    // Auto-select first org if user has no active org in JWT
+    async ensureActiveOrg() {
+        if (currentOrg) return; // already have one
+        try {
+            const resp = await authFetch('/auth/organizations');
+            if (!resp.ok) return;
+            const orgs = await resp.json();
+            if (orgs.length === 0) return;
+            // Prefer owned org, else first
+            const owned = orgs.find(o => o.role === 'owner') || orgs[0];
+            await this.switchOrg(owned.id, owned);
+        } catch (e) { console.error('ensureActiveOrg:', e); }
+    }
+
+    async loadOrgSwitcherList() {
+        const dropdown = document.getElementById('orgSwitcherDropdown');
+        dropdown.innerHTML = '<div style="padding:8px 12px;color:var(--text-2);font-size:0.8rem;">Загрузка...</div>';
+        try {
+            const resp = await authFetch('/auth/organizations');
+            if (!resp.ok) return;
+            const orgs = await resp.json();
+            if (orgs.length <= 1) {
+                dropdown.innerHTML = '<div style="padding:8px 12px;color:var(--text-2);font-size:0.8rem;">Только одна организация</div>';
+                return;
+            }
+            dropdown.innerHTML = orgs.map(o => {
+                const active = currentOrg && currentOrg.id === o.id;
+                return `<div class="org-switcher-item${active ? ' active' : ''}" onclick="app.switchOrg('${o.id}', ${JSON.stringify(o).replace(/"/g, '&quot;')})">
+                    ${active ? '✓ ' : ''}${o.name}
+                    <span style="font-size:0.7rem;color:var(--text-2);margin-left:4px;">${o.role}</span>
+                </div>`;
+            }).join('');
+        } catch (e) {
+            dropdown.innerHTML = '<div style="padding:8px 12px;color:var(--red);font-size:0.8rem;">Ошибка загрузки</div>';
+        }
+    }
+
+    async switchOrg(orgId, orgData) {
+        try {
+            const resp = await authFetch(`/auth/select-organization/${orgId}`, { method: 'POST' });
+            if (!resp.ok) throw new Error('Failed to switch org');
+            const data = await resp.json();
+            // Store new tokens
+            localStorage.setItem('access_token', data.access_token);
+            localStorage.setItem('refresh_token', data.refresh_token);
+            // Update current org
+            const newOrg = orgData || { id: orgId };
+            localStorage.setItem('current_org', JSON.stringify(newOrg));
+            currentOrg = newOrg;
+            // Update display
+            const orgName = document.getElementById('orgSwitcherName');
+            if (orgName) orgName.textContent = newOrg.name || 'Организация';
+            this.closeAllDropdowns();
+            // Show admin orgs button if owner/admin
+            const orgsBtn = document.getElementById('orgsMenuBtn');
+            if (orgsBtn) orgsBtn.style.display = (newOrg.role === 'owner' || newOrg.role === 'admin') ? '' : 'none';
+            // Reload data
+            this.loadDialogs();
+            if (typeof companiesModule !== 'undefined') companiesModule.loadCompanies();
+        } catch (e) { console.error('switchOrg error:', e); }
+    }
+
+    // Profile modal
+    openProfileModal() {
+        const modal = document.getElementById('profileModal');
+        if (!modal) return;
+        const nameInput = document.getElementById('profileNameInput');
+        if (nameInput) nameInput.value = currentUser ? (currentUser.full_name || '') : '';
+        document.getElementById('profileCurrentPassword').value = '';
+        document.getElementById('profileNewPassword').value = '';
+        document.getElementById('profileError').style.display = 'none';
+        document.getElementById('profileSuccess').style.display = 'none';
+        modal.classList.add('active');
+    }
+
+    closeProfileModal() {
+        const modal = document.getElementById('profileModal');
+        if (modal) modal.classList.remove('active');
+    }
+
+    async saveProfile() {
+        const fullName = document.getElementById('profileNameInput').value.trim();
+        const currentPwd = document.getElementById('profileCurrentPassword').value;
+        const newPwd = document.getElementById('profileNewPassword').value;
+        const errEl = document.getElementById('profileError');
+        const okEl = document.getElementById('profileSuccess');
+        errEl.style.display = 'none';
+        okEl.style.display = 'none';
+
+        const payload = {};
+        if (fullName) payload.full_name = fullName;
+        if (newPwd) { payload.current_password = currentPwd; payload.new_password = newPwd; }
+        if (Object.keys(payload).length === 0) { this.closeProfileModal(); return; }
+
+        try {
+            const resp = await authFetch('/auth/profile', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await resp.json();
+            if (!resp.ok) { errEl.textContent = data.detail || 'Ошибка сохранения'; errEl.style.display = 'block'; return; }
+            // Update localStorage
+            if (currentUser) {
+                currentUser.full_name = data.full_name;
+                localStorage.setItem('user', JSON.stringify(currentUser));
+            }
+            const nameEl = document.getElementById('authUserName');
+            if (nameEl) nameEl.textContent = data.full_name || data.email || 'Пользователь';
+            okEl.style.display = 'block';
+            setTimeout(() => this.closeProfileModal(), 1200);
+        } catch (e) { errEl.textContent = 'Ошибка подключения'; errEl.style.display = 'block'; }
+    }
+
+    // Open organizations panel by switching to the organizations tab
+    openOrgsModal() {
+        this.switchTab('organizations');
     }
 
     initElements() {
@@ -196,6 +371,7 @@ class VoiceCheckApp {
         this.tabBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
         this.tabPanes.forEach(pane => pane.classList.toggle('active', pane.id === `${tab}-tab`));
         if (tab === 'dialogs') this.loadDialogs();
+        if (tab === 'companies') companiesModule.loadCompanies();
         if (tab === 'organizations') loadOrganizationsForTab();
         if (tab === 'dashboard') this.loadDashboard();
     }
@@ -390,7 +566,7 @@ class VoiceCheckApp {
     goToPage(page) { this.currentPage = page; this.loadDialogs(); }
 
     getStatusText(status) {
-        const map = { 'completed': 'Завершен', 'dealed': 'Сделка', 'in_progress': 'В работе', 'rejected': 'Отклонен', 'pending': 'Ожидание', 'processing': 'Обработка', 'failed': 'Ошибка' };
+        const map = { 'completed': 'В работе', 'dealed': 'Сделка состоялась', 'in_progress': 'В работе', 'rejected': 'Отказ', 'pending': 'Ожидание', 'processing': 'Обработка', 'failed': 'Ошибка' };
         return map[status] || status;
     }
 
@@ -421,6 +597,19 @@ class VoiceCheckApp {
                 <h2 class="evaluation-title">${d.filename}</h2>
                 <div class="evaluation-meta">${new Date(d.created_at).toLocaleDateString('ru-RU')} | ${this.formatDuration(d.duration)}${d.seller_name ? ' | ' + d.seller_name : ''}</div>
             </div>
+            <div class="company-link-section">
+                <div class="company-link-row">
+                    <label class="company-link-label">Компания:</label>
+                    <div class="company-autocomplete" id="companyAutocomplete">
+                        <input type="text" id="dialogCompanyInput" class="form-input" placeholder="Выберите компанию..." autocomplete="off">
+                        <input type="hidden" id="dialogCompanyId">
+                        <div class="company-ac-dropdown" id="companyAcDropdown"></div>
+                    </div>
+                    <button class="btn btn-small" id="saveCompanyLinkBtn">Сохранить</button>
+                    <button class="btn btn-small btn-secondary" id="clearCompanyLinkBtn" title="Отвязать" style="padding:6px 10px;">✕</button>
+                </div>
+                <div id="companySuggestionContainer" style="margin-top:6px;"></div>
+            </div>
             ${summary ? `<div class="summary-section"><h3>Резюме встречи</h3><p class="summary-text">${summary}</p></div>` : ''}
             <div class="audio-player-section"><h3>Аудиозапись</h3><audio id="dialogAudio" controls preload="none"><source src="/dialogs/${d.id}/audio" type="audio/mpeg"></audio></div>
             <div class="scores-section"><h3>Оценка диалога</h3><div class="scores-grid">
@@ -435,7 +624,7 @@ class VoiceCheckApp {
             </div></div>
             <div class="deal-status-section"><h3>Статус встречи</h3><div class="status-selector">
                 ${this.renderStatusOption('dealed', 'Сделка состоялась', d.status === 'dealed')}
-                ${this.renderStatusOption('in_progress', 'В работе', d.status === 'in_progress')}
+                ${this.renderStatusOption('in_progress', 'В работе', d.status === 'in_progress' || d.status === 'completed')}
                 ${this.renderStatusOption('rejected', 'Отказ', d.status === 'rejected')}
             </div></div>
             <div class="speaking-time-section"><h3>Время говорения</h3>
@@ -467,7 +656,11 @@ class VoiceCheckApp {
             });
         });
 
-        setTimeout(() => { this.initSpeakingTimeChart(); this.initAudioSync(); }, 100);
+        setTimeout(() => {
+            this.initSpeakingTimeChart();
+            this.initAudioSync();
+            this.initCompanyLinkSection(d);
+        }, 100);
     }
 
     renderScoreItem(label, value) {
@@ -545,6 +738,131 @@ class VoiceCheckApp {
         this.evaluationContent.querySelectorAll('.recommendation-link[data-time]').forEach(link => {
             link.addEventListener('click', () => { if (this.audioElement) { this.audioElement.currentTime = parseFloat(link.dataset.time); this.audioElement.play(); } });
         });
+    }
+
+    // Company link section (CMP-021, CMP-022)
+    initCompanyLinkSection(d) {
+        const input = document.getElementById('dialogCompanyInput');
+        const hiddenId = document.getElementById('dialogCompanyId');
+        const dropdown = document.getElementById('companyAcDropdown');
+        const saveBtn = document.getElementById('saveCompanyLinkBtn');
+        const clearBtn = document.getElementById('clearCompanyLinkBtn');
+        const suggestionContainer = document.getElementById('companySuggestionContainer');
+        if (!input || !saveBtn || !dropdown) return;
+
+        let allCompanies = [];
+        let dropdownOpen = false;
+
+        // Load all companies
+        const loadAll = async () => {
+            try {
+                const resp = await authFetch('/companies/search?limit=200');
+                if (resp.ok) allCompanies = await resp.json();
+            } catch (e) {}
+        };
+
+        const renderDropdown = (items) => {
+            if (!items.length) {
+                dropdown.innerHTML = '<div class="company-ac-item no-result">Ничего не найдено</div>';
+            } else {
+                dropdown.innerHTML = items.map(c =>
+                    `<div class="company-ac-item" data-id="${c.id}" data-name="${c.name}">${c.name}${c.inn ? ' <span class="text-muted">(ИНН ' + c.inn + ')</span>' : ''}</div>`
+                ).join('');
+            }
+            dropdown.style.display = 'block';
+            dropdownOpen = true;
+            dropdown.querySelectorAll('.company-ac-item[data-id]').forEach(item => {
+                item.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    input.value = item.dataset.name;
+                    hiddenId.value = item.dataset.id;
+                    dropdown.style.display = 'none';
+                    dropdownOpen = false;
+                });
+            });
+        };
+
+        const filterAndShow = () => {
+            const q = input.value.trim().toLowerCase();
+            const filtered = q
+                ? allCompanies.filter(c => c.name.toLowerCase().includes(q) || (c.inn && c.inn.includes(q)))
+                : allCompanies;
+            renderDropdown(filtered);
+        };
+
+        // Open dropdown on focus/click - show all companies
+        input.addEventListener('focus', () => {
+            if (!allCompanies.length) {
+                loadAll().then(filterAndShow);
+            } else {
+                filterAndShow();
+            }
+        });
+
+        input.addEventListener('click', () => {
+            if (!dropdownOpen) filterAndShow();
+        });
+
+        input.addEventListener('input', () => {
+            hiddenId.value = '';
+            filterAndShow();
+        });
+
+        input.addEventListener('blur', () => {
+            setTimeout(() => {
+                dropdown.style.display = 'none';
+                dropdownOpen = false;
+            }, 200);
+        });
+
+        // Set initial value if company is linked
+        if (d.company_id && d.company_name) {
+            input.value = d.company_name;
+            hiddenId.value = d.company_id;
+        }
+
+        // Save button
+        saveBtn.addEventListener('click', async () => {
+            const companyId = hiddenId.value || null;
+            if (!companyId && input.value.trim()) {
+                // Try to find exact match
+                const match = allCompanies.find(c => c.name.toLowerCase() === input.value.trim().toLowerCase());
+                if (match) hiddenId.value = match.id;
+            }
+            const finalId = hiddenId.value || null;
+            saveBtn.disabled = true; saveBtn.textContent = '...';
+            if (typeof companiesModule !== 'undefined') {
+                const ok = await companiesModule.linkCompanyToDialog(d.id, finalId);
+                saveBtn.textContent = ok ? '✓' : 'Ошибка';
+                setTimeout(() => { saveBtn.disabled = false; saveBtn.textContent = 'Сохранить'; }, 2000);
+            }
+        });
+
+        // Clear button
+        if (clearBtn) {
+            clearBtn.addEventListener('click', async () => {
+                input.value = '';
+                hiddenId.value = '';
+                clearBtn.disabled = true;
+                if (typeof companiesModule !== 'undefined') {
+                    const ok = await companiesModule.linkCompanyToDialog(d.id, null);
+                    if (ok && suggestionContainer) {
+                        suggestionContainer.innerHTML = '<span class="text-muted" style="font-size:.85rem;">Компания отвязана</span>';
+                    }
+                }
+                clearBtn.disabled = false;
+            });
+        }
+
+        // Load companies list in background
+        loadAll();
+
+        // Auto-suggest if no company linked yet (CMP-022)
+        if (!d.company_id && suggestionContainer && typeof companiesModule !== 'undefined') {
+            companiesModule.suggestCompany(d.id, suggestionContainer);
+        } else if (d.company_id && d.company_name && suggestionContainer) {
+            suggestionContainer.innerHTML = `<span style="color:var(--green);font-size:.85rem;">Привязана: <b>${d.company_name}</b></span>`;
+        }
     }
 
     // Speaking time chart
@@ -678,27 +996,20 @@ function loadChartJS() {
 
 // Init
 document.addEventListener('DOMContentLoaded', async () => {
-    // Create org form handler
-    const createOrgForm = document.getElementById('createOrgForm');
-    if (createOrgForm) {
-        createOrgForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const name = document.getElementById('orgNameInput').value.trim();
-            if (name) await createOrganization(name);
-        });
-    }
-
-    // Add member form handler
-    const addMemberForm = document.getElementById('addMemberForm');
-    if (addMemberForm) addMemberForm.addEventListener('submit', submitAddMemberForm);
-
-    // Create department form handler
-    const createDeptForm = document.getElementById('createDeptForm');
-    if (createDeptForm) createDeptForm.addEventListener('submit', submitCreateDeptForm);
-
-    // Close modals on backdrop click
-    document.querySelectorAll('#addMemberModal, #createOrgModal, #createDeptModal').forEach(modal => {
+    // Close profile/orgs modals on backdrop click
+    document.querySelectorAll('#profileModal, #orgsModal, #addMemberModal, #createOrgModal, #createDeptModal').forEach(modal => {
         modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('active'); });
+    });
+
+    // Org form handlers (used inside orgsModal)
+    document.addEventListener('submit', async (e) => {
+        if (e.target.id === 'createOrgForm') {
+            e.preventDefault();
+            const name = document.getElementById('orgNameInput')?.value.trim();
+            if (name) await createOrganization(name);
+        }
+        if (e.target.id === 'addMemberForm') { e.preventDefault(); await submitAddMemberForm(e); }
+        if (e.target.id === 'createDeptForm') { e.preventDefault(); await submitCreateDeptForm(e); }
     });
 
     await loadChartJS();

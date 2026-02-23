@@ -66,8 +66,8 @@ async function loadOrganizationsForTab() {
 function getRoleLabel(role) {
     const labels = {
         'owner': 'Владелец',
-        'admin': 'Администратор',
-        'member': 'Участник',
+        'admin': 'Руководитель',
+        'member': 'Продавец',
         'viewer': 'Зритель'
     };
     return labels[role] || role;
@@ -290,8 +290,8 @@ function renderMembers(members, departments) {
                 ${!isCurrentUser && member.role !== 'owner' ? `
                 <div class="member-actions-menu">
                     <select class="role-select" onchange="changeMemberRole('${viewingOrgId}', '${member.id}', this.value)">
-                        <option value="admin" ${member.role === 'admin' ? 'selected' : ''}>Админ</option>
-                        <option value="member" ${member.role === 'member' ? 'selected' : ''}>Участник</option>
+                        <option value="admin" ${member.role === 'admin' ? 'selected' : ''}>Руководитель</option>
+                        <option value="member" ${member.role === 'member' ? 'selected' : ''}>Продавец</option>
                         <option value="viewer" ${member.role === 'viewer' ? 'selected' : ''}>Зритель</option>
                     </select>
                     <button class="btn-icon btn-icon-danger" onclick="removeMember('${viewingOrgId}', '${member.id}', '${escapeHtml(member.full_name)}')" title="Удалить">✕</button>

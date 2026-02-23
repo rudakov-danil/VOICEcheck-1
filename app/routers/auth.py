@@ -63,6 +63,13 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class UpdateProfileRequest(BaseModel):
+    """Request model for updating user profile."""
+    full_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    current_password: Optional[str] = Field(None, min_length=1)
+    new_password: Optional[str] = Field(None, min_length=8, max_length=128)
+
+
 class TokenResponse(BaseModel):
     """Response model for authentication tokens."""
     access_token: str
@@ -557,6 +564,38 @@ async def select_organization(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"error": "invalid_token", "detail": str(e)}
         )
+
+
+@router.patch("/profile", response_model=UserResponse, summary="Update user profile")
+async def update_profile(
+    payload: UpdateProfileRequest,
+    user: User = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update display name and/or password for the current user."""
+    check_auth_enabled()
+
+    if payload.full_name:
+        user.full_name = payload.full_name.strip()
+
+    if payload.new_password:
+        if not payload.current_password:
+            raise HTTPException(status_code=400, detail="Укажите текущий пароль")
+        if not user.verify_password(payload.current_password):
+            raise HTTPException(status_code=400, detail="Неверный текущий пароль")
+        user.set_password(payload.new_password)
+
+    await db.commit()
+    await db.refresh(user)
+    return UserResponse(
+        id=str(user.id),
+        email=user.email,
+        username=getattr(user, "username", None),
+        full_name=user.full_name,
+        is_active=user.is_active,
+        last_login_at=user.last_login_at.isoformat() if user.last_login_at else None,
+        created_at=user.created_at.isoformat() if user.created_at else None,
+    )
 
 
 # ============================================================
